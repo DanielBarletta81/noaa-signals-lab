@@ -1,0 +1,104 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #eefdfb;
+  background: #061011;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 28rem),
+    linear-gradient(135deg, #061011, #0b1d20);
+}
+
+.app-shell {
+  width: min(1080px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 44px 0;
+}
+
+.hero-card,
+.card {
+  border: 1px solid rgba(151, 213, 210, 0.18);
+  border-radius: 28px;
+  background: rgba(13, 28, 30, 0.92);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  padding: 28px;
+  margin-bottom: 18px;
+}
+
+.hero-card h1 {
+  max-width: 850px;
+  margin: 0;
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+}
+
+.hero-card p {
+  max-width: 720px;
+  color: #9fbfbd;
+  line-height: 1.7;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #7dd3fc;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.status-pill {
+  display: inline-flex;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #bae6fd;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.metric-card span {
+  color: #9fbfbd;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.7rem;
+}
+
+.chart-wrap {
+  margin-top: 20px;
+}
+
+.insight p:last-child {
+  font-size: 1.12rem;
+  line-height: 1.7;
+  color: #e6fffb;
+}
+
+.error {
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
