@@ -1,7 +1,8 @@
 import { useNoaaSignal } from "./hooks/useNoaaSignal";
-import { SummaryCards } from "./components/SummaryCards";
-import { SignalChart } from "./components/SignalChart";
-import { InsightPanel } from "./components/InsightPanel";
+import { SummaryCards } from "./components/SummaryCards.tsx";
+import { SignalChart } from "./components/SignalChart.tsx";
+import { InsightPanel } from "./components/InsightPanel.tsx";
+import {LocationData} from "./components/LocationData.tsx";
 
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
           <InsightPanel insight={processed.insight} />
         </>
       )}
+      <LocationData location="newport" />
     </main>
   );
 }

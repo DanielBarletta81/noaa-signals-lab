@@ -1,4 +1,4 @@
-export function InsightPanel({ insight }) {
+export function InsightPanel({ insight = "" }: { insight?: string }) {
   return (
     <section className="card insight">
       <p className="eyebrow">Interpretation Layer</p>

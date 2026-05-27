@@ -1,4 +1,4 @@
-export function SummaryCards({ summary }) {
+export function SummaryCards({ summary }: { summary?: { latestValue: number; average: number; trend: string; count: number } }) {
   if (!summary) return null;
 
   return (
@@ -8,10 +8,11 @@ export function SummaryCards({ summary }) {
       <Card label="Trend" value={summary.trend} />
       <Card label="Samples" value={summary.count} />
     </section>
+    
   );
 }
 
-function Card({ label, value }) {
+function Card({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="card metric-card">
       <span>{label}</span>
