@@ -22,7 +22,6 @@ export function SignalChart({ series }: SignalChartProps) {
     <section className="card">
       <p className="eyebrow">NOAA Signal</p>
       <h2>Water Temperature — Last 24 Hours</h2>
-      <pre>{JSON.stringify(series?.slice?.(0, 3), null, 2)}</pre>
       <ResponsiveContainer width="100%" height={300} >
         <LineChart data={series}>
           <XAxis dataKey="time" tick={{ fontSize: 12 }} />
