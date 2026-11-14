@@ -1,94 +1,93 @@
-# NOAA Signal Explorer
+# NOAA Signals Lab
 
-A modern visualization and interpretation layer for NOAA coastal station data.
+**Observed coastal water temperature, presented with explicit data quality and scientific limitations.**
 
-## Overview
-
-NOAA Signal Explorer fetches coastal observations from the NOAA CO-OPS Data Retrieval API, checks and normalizes them, and shows the measured values with their UTC timestamps, data-quality counts, and limits. It does not classify water temperature as healthy or harmful.
+NOAA Signals Lab retrieves public observations from NOAA CO-OPS, processes them through a small Express service, and presents a React dashboard. The engineering goal is not merely to draw a line chart: it is to make it possible to trace a displayed value back through parsing, timestamp normalization, exclusion rules and the upstream source.
 
 This project is the real-data sibling of Estuary Signal Lab.
 
-## Current scope
+**Status:** Active portfolio application. The current data-integrity implementation is on [`feature/noaa-data-integrity`](https://github.com/DanielBarletta81/noaa-signals-lab/tree/feature/noaa-data-integrity) and [draft PR #2](https://github.com/DanielBarletta81/noaa-signals-lab/pull/2). Until these are merged, the default branch does **not** contain all improvements described below. Interface work is stacked on this branch in later draft pull requests.
 
-- Station: Providence, RI (NOAA station `8454000`; the name comes from NOAA's station metadata)
-- Product: `water_temperature`, in °C
-- Window: the last 1 to 72 hours (default 24), one observation per hour
-- Shown: latest value and time (UTC), min, max, mean, sample count, a chart, data-quality counts, and the limits of the summary
-- Not yet: a time-window trend (the old last-step "trend" was removed), ecological interpretation, multiple stations, filtering by NOAA quality flags
+## What it currently does on the feature branch
 
-See `docs/DATA_DICTIONARY.md` for every field, the timestamp policy, exclusion reasons, and how NOAA "no data" responses are classified.
+- Reads hourly `water_temperature` observations for NOAA station **8454000** (Providence, Rhode Island).
+- Accepts a 1–72 hour window, defaulting to 24 hours.
+- Requests GMT timestamps and converts them to explicit UTC instants.
+- Excludes missing, blank, malformed and non-finite measurements before calculating summaries; preserves genuine zero values.
+- Reports row counts, exclusion reasons, original readings and NOAA-supplied flags; the flags are **preserved, not interpreted**.
+- Displays latest accepted reading, timestamp, minimum, maximum, mean and a temperature chart.
+- Distinguishes a valid empty row set from NOAA's ambiguous "no data" message.
+- Uses neutral descriptive language instead of unsupported ecological-health classifications.
 
-## Architecture
+## Why I built it
 
-```txt
-NOAA API
-  → NOAA adapter        server/src/adapters/noaaClient.js
-  → signal processor    server/src/pipeline/signalProcessor.js
-  → insight text        server/src/pipeline/insightEngine.js
-  → Express API         server/src/routes/signals.js   (mounted at /api)
-  → React dashboard     client/src
+An earlier parsing path used `Number(value)`, which silently converted blank or `null` readings into `0`. A missing observation could therefore become a false 0°C event in a scientific chart. This project is an exercise in preventing that kind of failure and exposing the rules that determine which observations are suitable for plotting.
+
+## Data flow
+
+```text
+NOAA CO-OPS data retrieval API
+  -> Express route: validate station/product/window
+  -> NOAA adapter: fetch, parse, normalize UTC, preserve provenance
+  -> Observation filter: retain valid values, count exclusions
+  -> Signal processor: accepted-only descriptive statistics
+  -> API response: data, quality, status, source context
+  -> React dashboard: observed values and clearly labeled limitations
 ```
 
-Frontend: React, Vite, Recharts 2.15.x
-Backend: Node.js, Express 4, NOAA CO-OPS adapter
+### Scientific boundaries
 
-## Requirements
+- **Observed vs simulated:** normal application readings come from NOAA; test fixtures are stored separately and clearly labeled.
+- **Missing is not zero:** invalid rows do not contribute to summaries.
+- **No ecological diagnosis:** temperature alone does not establish whether a habitat is healthy, stressed or biologically safe.
+- **No validated trend yet:** the previous last-step trend label was removed. A future time-aware slope must account for coverage and missingness.
+- **NOAA flags:** retained but not yet decoded or used for filtering.
+- **No-data ambiguity:** an upstream message may mean either no available observations or an unsupported station/product combination; the interface does not assert which without further evidence.
 
-- **Node.js 22.** The verified version is in `.nvmrc` (22.23.5). With nvm, run `nvm use` in the repository root. Node 23 works but prints `EBADENGINE` warnings from ESLint's own dependencies, and that output is not from this project's code.
-- npm 11 was used for verification (11.8.0).
+For field definitions, see [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md) **on the feature branch**.
 
-## Setup
+## Technologies
 
-Install each package from its lockfile. Use `npm ci`, not `npm install`:
+React, Vite, Recharts, Node.js, Express, NOAA CO-OPS API, Node's built-in test runner, Git.
 
-```sh
-npm ci                 # root: installs concurrently, used by "npm run dev"
+## Run locally (feature branch)
+
+Requires the Node 22 version documented in `.nvmrc` and npm.
+
+```bash
+git clone https://github.com/DanielBarletta81/noaa-signals-lab.git
+cd noaa-signals-lab
+git switch feature/noaa-data-integrity
+npm ci
 (cd server && npm ci)
 (cd client && npm ci)
-```
-
-Run the server and the client together:
-
-```sh
 npm run dev
 ```
 
-- Server: http://localhost:4200 (`GET /api/health` to check it)
-- Client: http://localhost:5173. Its `/api` requests are forwarded to the server by the Vite proxy.
+Frontend: `http://localhost:5173` · API: `http://localhost:4200/api/health`
+
+The Vite development proxy forwards relative `/api` requests to Express. A production deployment must separately configure routing or an API origin.
 
 ## Verify
 
-```sh
-(cd server && npm test)                                # server tests (node:test)
+```bash
+(cd server && npm test)
 (cd client && npm test && npm run lint && npm run build)
-curl -i http://localhost:4200/api/health
-curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_temperature&range=24'
 ```
 
-## Configuration
+**Reported local verification on PR #2:** 132 server tests and 34 client tests passing, lint and clean build passing, and no server production advisories at the time tested. These are **local checks, not GitHub-hosted CI**. Browser/Playwright validation has not yet been performed.
 
-| Variable | Set where | Default | Purpose |
-|---|---|---|---|
-| `PORT` | server environment | `4200` | Port for the Express server |
-| `NOAA_TIMEOUT_MS` | server environment | `8000` | Time allowed for each NOAA request (1 to 60000) |
-| `API_PROXY_TARGET` | shell, for `npm run dev` or `preview` in `client/` | `http://localhost:4200` | Where the Vite proxy forwards `/api` |
-| `VITE_API_BASE_URL` | `client/.env.local`, at build time | empty (same origin) | API origin for a deployed build. Must be `https`, except `http://localhost`. See `client/.env.example`. |
+Re-run on this branch (`180d156`, a clean export with Node 22.23.5): the same counts, 132 and 34, with lint and build exit 0.
 
-`VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable.
+## Engineering choices and tradeoffs
 
-## API
-
-`GET /api/signals?station=8454000&product=water_temperature&range=24`
-
-| Status | Meaning |
-|---|---|
-| 200 `status: "ok"` | At least one observation was accepted |
-| 200 `status: "empty"` | NOAA returned a valid response with no rows. `absenceStatus` is `rows_absent_in_window`. |
-| 200 `status: "empty"`, `emptyReason: "noaa_no_data_message"` | NOAA returned its no-data text. This does not prove the window was empty. `absenceStatus` is `not_established`. |
-| 200 `status: "no_valid_observations"` | Rows were returned, but all were excluded |
-| 400 `invalid_parameter` | A station, product, or range is not on the allowlist (only `8454000`, `water_temperature`, 1 to 72 hours) |
-| 502 `upstream_error` / `upstream_unreachable` | NOAA failed or could not be reached |
-| 504 `upstream_timeout` | NOAA did not respond in time |
+| Decision                                                   | Rationale                                                            | Outstanding work                                      |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------- |
+| Express adapter instead of direct browser-to-NOAA requests | Centralizes input validation, normalization and error behavior       | Caching, rate limiting and production security policy |
+| UTC internally                                             | Avoids ambiguous local timestamps around daylight-saving transitions | Add localized display with a clear timezone label     |
+| Drop invalid readings but count them                       | Prevents fabricated observations while exposing data loss            | Decode NOAA quality flags and expand provenance       |
+| Suppress misleading trends                                 | Avoids presenting an unvalidated calculation as evidence             | Test time-aware window slope and coverage thresholds  |
+| Fixture-backed tests                                       | Deterministic assertions without depending on live NOAA uptime       | Browser tests and hosted CI                           |
 
 ## Why This Exists
 
@@ -104,6 +103,11 @@ Scientific data is often available but difficult to interpret quickly. This proj
 - Reusable NOAA JavaScript client
 - Documentation examples for scientific developers
 
-## Author
+## Roadmap
 
-Daniel Barletta
+1. Human review and merge of data-integrity PR.
+2. Browser-level checks, accessibility verification and GitHub Actions.
+3. NOAA flag interpretation, missingness visualization and observation coverage.
+4. Defensible time-window trends and additional stations.
+
+**Maintainer:** Daniel Barletta. AI-assisted implementation has been reviewed through local diffs and tests; further independent code and browser review is pending.
