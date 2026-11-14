@@ -2,11 +2,66 @@
 
 A modern visualization and interpretation layer for NOAA coastal station data.
 
+![Demonstration of the Observatory Ledger layout at desktop width: the latest measured water temperature (11.9 °C at 14 Nov 2026, 00:00 UTC) above a chart of 24 accepted hourly observations, a coverage strip, and context panels. Demonstration only: the values come from a captured NOAA response served by a local demonstration API, not from a live request.](docs/media/demo-observation-desktop.png)
+
+*Demonstration, not live data.* The image above was rendered from a captured NOAA response (see `server/test/fixtures/`). It was served through the real Express route and processing code by a local demonstration harness that lives outside this repository and is not committed. The live page shows what NOAA returns when you load it; a live capture is at `docs/media/live-observation-desktop.png`, and the time it was taken is printed on the page.
+
+Other media in `docs/media/`:
+- `demo-before-redesign-desktop.png`: the previous interface, for comparison (demonstration data).
+- `demo-excluded-and-missing-hours-desktop.png`: a modified capture with one blank value and one missing hour (demonstration data).
+- `demo-timeout-error-desktop.png`, `demo-no-data-desktop.png`, `demo-observation-mobile.png`: demonstration states.
+- `demo-keyboard-interaction.gif`: four keyboard-driven frames (latest, excluded hour, missing hour, back to latest). It is not a continuous recording.
+
 ## Overview
 
 NOAA Signal Explorer fetches coastal observations from the NOAA CO-OPS Data Retrieval API, checks and normalizes them, and shows the measured values with their UTC timestamps, data-quality counts, and limits. It does not classify water temperature as healthy or harmful.
 
 This project is the real-data sibling of Estuary Signal Lab.
+
+## What the page shows, and how to read it
+
+Each part of the page answers one question, in this order:
+
+1. **Observation.** The latest accepted value, in large numerals with its UTC time. Select any hour in the coverage strip to read that hour's status instead.
+2. **Context.** Derived summary numbers (mean, minimum, maximum, accepted count), and the limits of the summary.
+3. **Data quality.** Rows received, used, and excluded, with the reason for each exclusion. Quality flags are kept but not interpreted.
+4. **Methodology.** What was requested, how each row was accepted or excluded, and what is not calculated.
+
+The coverage strip uses one shape per hour, not colour alone:
+
+| Shape on the strip | Meaning | What the page shows for it |
+|---|---|---|
+| Solid sea-glass block | NOAA returned a row, and it passed validation | Its measured value |
+| Hatched block (clay) | NOAA returned a row, but it was excluded (for example, a blank value) | No value. It is never plotted or treated as zero. |
+| Dashed outline | NOAA returned no row for that hour | No value. Nothing is estimated. |
+
+The chart connects measured hours with straight segments. It does not draw a smooth curve, because a curve would imply values between the measured hours.
+
+Error and empty states are described in their own panels. "NOAA reported no data" is deliberately not reported as "no observations," because NOAA's response does not say which of the two it means.
+
+## Accessibility
+
+- The hourly strip is a set of buttons with one tab stop. Arrow keys move between hours, Home and End jump to the ends, and Enter selects an hour.
+- Every hour has a full accessible name, such as "14 Nov 2026, 14:00 UTC: no row returned by NOAA."
+- Focus is shown with a 3 px high-contrast outline. A skip link moves focus to the observation.
+- Under `prefers-reduced-motion`, transitions, the entrance animation, and chart animation are turned off.
+- Phone-width hour targets are at least 24 CSS px. The palette is checked against WCAG 2.x contrast in the test suite.
+- A table of every hour, with its status and value, sits under the chart, so no information is available only as a picture.
+
+These checks were run in a browser; see *Verification status* below for exactly what was and was not tested.
+
+## Verification status
+
+| Check | Status |
+|---|---|
+| Server tests (`node --test`) | 137 pass, 0 fail |
+| Client tests (`node --test`) | 71 pass, 0 fail |
+| Client lint and production build | Pass |
+| Browser keyboard, focus, reduced-motion, and target-size checks (Chrome 157, scripted) | 20 of 20 pass |
+| axe-core (WCAG 2.x A and AA) on 21 captures (7 states × 3 widths) | 0 violations |
+| Screen-reader testing (VoiceOver, NVDA) | **Not done** |
+| Full WCAG conformance audit | **Not done**. No compliance claim is made. |
+| Continuous screen recording | **Not done**. The GIF is assembled from four keyboard-driven frames. |
 
 ## Current scope
 
