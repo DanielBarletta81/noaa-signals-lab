@@ -1,0 +1,276 @@
+/* Three knowledge environments, one interface.
+ *
+ *   Instrument (observatory): precise, stable, numeric. Plates and hairline readouts.
+ *   Field note (wet deck):    observations and contextual notes. Clipped note slips,
+ *                             a ruled header band, a faint brackish wipe at one corner.
+ *   Lab bench (interpretation): methods and quality. Cleaned, structured, hairline grids.
+ *
+ * Texture rules, so readability wins:
+ *   - No texture sits behind body text or behind the chart. Ruled lines appear only in
+ *     a 14 px header band above the text; the wipe is a corner smudge outside the text.
+ *   - Colour keeps its meaning from index.css: sea = accepted, clay = excluded or a
+ *     recorded fault, muted = secondary. Nothing here adds a new meaning.
+ *   - Motion is a single short settle on entry, disabled by prefers-reduced-motion.
+ */
+
+:root {
+  --paper-ink: #d9d0bd;
+  --paper-surface: #16212b;
+  --paper-rule: #3a4a55;
+  --paper-pencil: #a9b8c2;
+  --wipe: rgba(176, 160, 120, 0.07);
+
+  --lab-surface: #0e1c28;
+  --lab-rule: #2a4555;
+}
+
+/* Instrument ---------------------------------------------------------------- */
+
+.readout--instrument {
+  position: relative;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border: 1px solid var(--rule);
+  background: var(--ink-0);
+  box-shadow: inset 0 0 0 1px rgba(244, 239, 227, 0.035);
+}
+
+/* Four hairline corner marks, the way a gauge plate is registered. Decorative only. */
+.readout--instrument::before,
+.readout--instrument::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: var(--muted);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+
+.readout--instrument::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.readout--instrument::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
+.panel--instrument {
+  background: var(--ink-0);
+  border-color: var(--rule);
+}
+
+.panel--instrument .derived-list {
+  gap: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.panel--instrument .derived-list dd {
+  white-space: nowrap;
+  font-size: clamp(1.15rem, 2.4vw, 1.4rem);
+}
+
+.panel--instrument .derived-list > div {
+  padding: 0.7rem 0.8rem 0.7rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel--instrument .derived-list > div + div {
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--rule);
+}
+
+/* Field note ---------------------------------------------------------------- */
+
+.panel--field,
+.readout--field,
+.state-panel.panel--field {
+  position: relative;
+  background: var(--paper-surface);
+  color: var(--paper-ink);
+  border: 1px solid var(--paper-rule);
+  /* A clipped top-left corner, as on a torn observation slip. */
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+  border-radius: 0;
+  padding-top: 1.35rem;
+  animation: field-settle 220ms ease-out both;
+}
+
+/* The header band of a waterproof pad: fine ruled lines, above the text only. */
+.panel--field::before,
+.readout--field::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 4px,
+    rgba(169, 184, 194, 0.16) 4px 5px
+  );
+  pointer-events: none;
+}
+
+/* A faint brackish wipe, in one corner, kept inside the panel. An offset outside the
+   panel would widen the page: clip-path hides the paint but not the scrollable area. */
+.panel--field::after,
+.readout--field::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 150px;
+  height: 100px;
+  background: radial-gradient(closest-side, var(--wipe), transparent);
+  pointer-events: none;
+}
+
+.panel--field .panel-kicker,
+.panel--field .readout-heading,
+.state-panel.panel--field .state-label {
+  color: var(--paper-pencil);
+}
+
+.panel--field h2,
+.panel--field h3,
+.readout--field .numeral {
+  color: var(--paper-ink);
+}
+
+.panel--field .plain-list li::before {
+  color: var(--paper-pencil);
+}
+
+.readout--field {
+  position: relative;
+  padding: 1.35rem 1.2rem 1.2rem;
+  border: 1px solid var(--paper-rule);
+  background: var(--paper-surface);
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+  animation: field-settle 220ms ease-out both;
+}
+
+.readout--field .readout-time,
+.readout--field .readout-note {
+  color: var(--paper-ink);
+}
+
+/* A pencil-style tag for a field slip. Text only; it records what was observed. */
+.field-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper-pencil);
+  border: 1px dashed var(--paper-rule);
+  padding: 0.15rem 0.45rem;
+}
+
+/* Lab bench ----------------------------------------------------------------- */
+
+.panel--lab {
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-rule);
+  border-top: 2px solid var(--muted);
+  border-radius: 2px;
+}
+
+.panel--lab .quality-counts > div {
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--lab-rule);
+}
+
+.panel--lab .quality-counts > div:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+.panel--lab .method-steps {
+  counter-reset: step;
+  list-style: none;
+  padding-left: 0;
+}
+
+.panel--lab .method-steps li {
+  position: relative;
+  padding-left: 2.2rem;
+  border-top: 1px solid var(--lab-rule);
+  padding-top: 0.6rem;
+}
+
+.panel--lab .method-steps li::before {
+  counter-increment: step;
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.panel--lab .table-scroll {
+  border-color: var(--lab-rule);
+}
+
+.panel--lab .table-scroll th,
+.panel--lab .table-scroll td {
+  border-top-color: var(--lab-rule);
+}
+
+/* The three environments, named in order under the masthead. */
+
+.journey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.journey span:nth-child(1) {
+  color: var(--numeral);
+}
+
+.journey span:nth-child(3) {
+  color: var(--paper-pencil);
+}
+
+.journey span:nth-child(5) {
+  color: var(--muted);
+}
+
+/* Shared motion --------------------------------------------------------------- */
+
+@keyframes field-settle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Narrow screens: keep the clipped corner, drop the decorative wipe so it cannot
+   sit behind a small amount of text. */
+@media (max-width: 699px) {
+  .panel--field::after,
+  .readout--field::after {
+    display: none;
+  }
+}

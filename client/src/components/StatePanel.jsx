@@ -5,7 +5,7 @@ export function StatePanel({ tone, label, title, body, code, children, onRetry }
   const isError = tone === "error";
   return (
     <section
-      className={`state-panel state-${tone}`}
+      className={`state-panel state-${tone}${tone === "loading" ? "" : " panel--field"}`}
       aria-labelledby="state-title"
       role={isError ? "alert" : undefined}
     >

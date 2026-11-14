@@ -16,8 +16,8 @@ export function QualityPanel({ data }) {
   const reasons = Object.entries(quality.excludedByReason).filter(([, count]) => count > 0);
 
   return (
-    <section className="panel" aria-labelledby="quality-title">
-      <p className="panel-kicker">Data quality</p>
+    <section className="panel panel--lab" aria-labelledby="quality-title">
+      <p className="panel-kicker">Lab bench · data quality</p>
       <h2 id="quality-title">How complete is this window?</h2>
       <dl className="quality-counts">
         <div>

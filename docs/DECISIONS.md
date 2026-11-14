@@ -2,6 +2,27 @@
 
 Short, dated records of decisions that shape what the interface shows and how it can be verified. Newest first.
 
+## 2026-11-14: Three knowledge environments (instrument, field note, lab bench)
+
+**Status:** implemented on `feature/noaa-immersive-environments`. Not yet merged.
+
+**Intent.** The journey from measurement to observation to interpretation should be visible in the interface, and it should not be decorative. A marine scientist should find it credible, a student should be able to follow it, and a visitor should be drawn in.
+
+**Decisions.**
+- Three environments, each with one surface treatment. *Instrument* is near-black ink with hairline plates for measured values. *Field note* is a warmer slate slip with a clipped corner, a ruled header band, and a faint wipe. *Lab bench* is a cooler surface with hairline grids and numbered steps.
+- The environment is named on the page: the masthead carries the journey line, and each panel's kicker names its environment.
+- A selected hour becomes a field-note slip, and the latest value stays on the instrument plate. The reader moves from the instrument reading to a specific observation.
+- Texture is confined to places where it cannot compete with information. Ruled lines appear only in a 14 px band above the text. The wipe is a corner smudge kept inside its panel. The chart has no texture.
+- Motion is one short settle when a note appears, plus a fix found during testing: the chart line animates only on its first render, so selecting an hour no longer makes the series vanish briefly.
+
+**Rejected alternatives.**
+- Paper texture behind body text. It lowers contrast for the readers who most need the text.
+- Hazard or "field alert" styling for excluded rows or errors. It would imply ecological danger that the data does not show.
+- Hand-lettered or script type. It reduces legibility and does not carry scientific meaning.
+- Animated ripples or water effects. They are decoration, and they add motion without information.
+
+**Verification.** 91 client tests (contrast of new text colours, texture placement, no alarm colours, each environment applied, animation regression), lint, and production build. Browser: 20 keyboard and responsive checks, and axe-core with zero violations across 21 captures. A defect found during browser testing was fixed: a wide clip-path wipe widened the page at 768 px.
+
 ## 2026-11-14: "Observatory Ledger" visual direction
 
 **Status:** implemented on `feature/noaa-instrument-design`. Not yet merged.

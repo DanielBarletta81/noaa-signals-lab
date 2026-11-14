@@ -126,6 +126,13 @@ export default function App() {
           The measured values, their UTC times, and the coverage of every hour in the window.
           Nothing is interpreted here beyond what the Methodology states.
         </p>
+        <p className="journey">
+          <span>Instrument: measurement</span>
+          <span aria-hidden="true">→</span>
+          <span>Field note: observation</span>
+          <span aria-hidden="true">→</span>
+          <span>Lab bench: interpretation</span>
+        </p>
         <p className="status-line" role="status" aria-live="polite">
           {statusLine}
         </p>
@@ -163,7 +170,7 @@ export default function App() {
 
           {readout && (
             <div className="readout-block">
-              <Readout key={`${readout.heading}|${readout.observedAt}`} {...readout} />
+              <Readout key={`${readout.heading}|${readout.observedAt}`} variant={selectedSlot ? "field" : "instrument"} {...readout} />
               {selectedIso && (
                 <button type="button" className="link-button" onClick={() => setSelectedIso(null)}>
                   Return to the latest observation

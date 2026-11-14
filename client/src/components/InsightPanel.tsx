@@ -9,8 +9,8 @@ export function InsightPanel({
   limitations?: string[];
 }) {
   return (
-    <section className="panel" aria-labelledby="insight-title">
-      <p className="panel-kicker">Context</p>
+    <section className="panel panel--field" aria-labelledby="insight-title">
+      <p className="panel-kicker">Field note · context</p>
       <h2 id="insight-title">What the observations show</h2>
       <p className="panel-body">{insight}</p>
       {limitations.length > 0 && (
