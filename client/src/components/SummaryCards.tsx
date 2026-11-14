@@ -12,8 +12,8 @@ export function SummaryCards({ summary }: { summary?: Summary | null }) {
   if (!summary) return null;
 
   return (
-    <section className="panel" aria-labelledby="derived-title">
-      <p className="panel-kicker">Derived from accepted observations</p>
+    <section className="panel panel--instrument" aria-labelledby="derived-title">
+      <p className="panel-kicker">Instrument · derived from accepted observations</p>
       <h2 id="derived-title">Summary of this window</h2>
       <dl className="derived-list">
         <div>

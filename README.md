@@ -39,6 +39,16 @@ The chart connects measured hours with straight segments. It does not draw a smo
 
 Error and empty states are described in their own panels. "NOAA reported no data" is deliberately not reported as "no observations," because NOAA's response does not say which of the two it means.
 
+## Three knowledge environments
+
+The interface is arranged as a path from measurement to interpretation, in three environments:
+
+- **Instrument (measurement).** The latest accepted value, on a registered plate, and the derived summary. Precise and stable.
+- **Field note (observation).** A selected hour, shown as a note slip, and the contextual notes. Clipped corners, a ruled header band, and a faint brackish wipe in one corner give the sense of a waterproof pad used in the field.
+- **Lab bench (interpretation).** Data quality and methodology: hairline grids, numbered steps, and no texture.
+
+The texture is kept away from anything a reader must read or see: ruled lines appear only in a 14 px header band, the wipe is a corner smudge inside its panel, and the chart has no texture at all. Colour keeps the meaning it has elsewhere: sea for accepted observations, clay for excluded rows and recorded faults. No alarm colours or hazard styling are used. Motion is a single short settle when a note appears, and it is disabled under `prefers-reduced-motion`.
+
 ## Accessibility
 
 - The hourly strip is a set of buttons with one tab stop. Arrow keys move between hours, Home and End jump to the ends, and Enter selects an hour.
@@ -55,7 +65,7 @@ These checks were run in a browser; see *Verification status* below for exactly 
 | Check | Status |
 |---|---|
 | Server tests (`node --test`) | 137 pass, 0 fail |
-| Client tests (`node --test`) | 71 pass, 0 fail |
+| Client tests (`node --test`) | 91 pass, 0 fail |
 | Client lint and production build | Pass |
 | Browser keyboard, focus, reduced-motion, and target-size checks (Chrome 157, scripted) | 20 of 20 pass |
 | axe-core (WCAG 2.x A and AA) on 21 captures (7 states × 3 widths) | 0 violations |
