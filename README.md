@@ -1,12 +1,12 @@
-```text
-NOAA Signals Lab
-```
+# NOAA Signals Lab
 
 **Observed coastal water temperature, presented with explicit data quality and scientific limitations.**
 
 NOAA Signals Lab retrieves public observations from NOAA CO-OPS, processes them through a small Express service, and presents a React dashboard. The engineering goal is not merely to draw a line chart: it is to make it possible to trace a displayed value back through parsing, timestamp normalization, exclusion rules and the upstream source.
 
-**Status:** Active portfolio application. The current data-integrity implementation is on [`feature/noaa-data-integrity`](https://github.com/DanielBarletta81/noaa-signals-lab/tree/feature/noaa-data-integrity) and [draft PR #2](https://github.com/DanielBarletta81/noaa-signals-lab/pull/2). Until merged, the default branch does **not** contain all improvements described below.
+This project is the real-data sibling of Estuary Signal Lab.
+
+**Status:** Active portfolio application. The current data-integrity implementation is on [`feature/noaa-data-integrity`](https://github.com/DanielBarletta81/noaa-signals-lab/tree/feature/noaa-data-integrity) and [draft PR #2](https://github.com/DanielBarletta81/noaa-signals-lab/pull/2). Until these are merged, the default branch does **not** contain all improvements described below. Interface work is stacked on this branch in later draft pull requests.
 
 ## What it currently does on the feature branch
 
@@ -77,6 +77,8 @@ The Vite development proxy forwards relative `/api` requests to Express. A produ
 
 **Reported local verification on PR #2:** 132 server tests and 34 client tests passing, lint and clean build passing, and no server production advisories at the time tested. These are **local checks, not GitHub-hosted CI**. Browser/Playwright validation has not yet been performed.
 
+Re-run on this branch (`180d156`, a clean export with Node 22.23.5): the same counts, 132 and 34, with lint and build exit 0.
+
 ## Engineering choices and tradeoffs
 
 | Decision                                                   | Rationale                                                            | Outstanding work                                      |
@@ -86,6 +88,20 @@ The Vite development proxy forwards relative `/api` requests to Express. A produ
 | Drop invalid readings but count them                       | Prevents fabricated observations while exposing data loss            | Decode NOAA quality flags and expand provenance       |
 | Suppress misleading trends                                 | Avoids presenting an unvalidated calculation as evidence             | Test time-aware window slope and coverage thresholds  |
 | Fixture-backed tests                                       | Deterministic assertions without depending on live NOAA uptime       | Browser tests and hosted CI                           |
+
+## Why This Exists
+
+Scientific data is often available but difficult to interpret quickly. This project focuses on the missing layer between raw environmental observations and human understanding.
+
+## Future Work
+
+- Salinity and water-level support
+- Multi-station comparison
+- Time-window trend (delta and slope in °C per hour, with coverage rules)
+- Narragansett Bay map layer
+- Estuary health scoring
+- Reusable NOAA JavaScript client
+- Documentation examples for scientific developers
 
 ## Roadmap
 
