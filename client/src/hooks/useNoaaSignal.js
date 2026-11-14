@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_SIGNAL_QUERY,
   buildSignalUrl,
@@ -14,8 +14,8 @@ import {
 //          data.absenceStatus for what may be claimed)
 //   error: the request failed; errorCode is a machine-readable reason
 //
-// The API base comes from VITE_API_BASE_URL (see client/.env.example). When it is
-// empty, requests are relative (/api/...), and the Vite proxy forwards them.
+// reload() repeats the same request. It exists for the "Try again" action on
+// transient failures. It does not change the query.
 const LOADING_STATE = Object.freeze({
   data: null,
   status: "loading",
@@ -25,6 +25,7 @@ const LOADING_STATE = Object.freeze({
 
 export function useNoaaSignal() {
   const [state, setState] = useState(LOADING_STATE);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,7 +45,9 @@ export function useNoaaSignal() {
 
     loadSignal();
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
 
-  return state;
+  const reload = useCallback(() => setAttempt((count) => count + 1), []);
+
+  return { ...state, reload };
 }

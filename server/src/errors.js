@@ -38,11 +38,16 @@ export class UpstreamTimeoutError extends ApiError {
     super(
       504,
       "upstream_timeout",
-      `NOAA did not respond within ${Math.round(timeoutMs / 1000)} seconds.`,
+      `NOAA did not respond within ${formatDuration(timeoutMs)}.`,
       { timeoutMs }
     );
     this.name = "UpstreamTimeoutError";
   }
+}
+
+// Whole seconds would read "0 seconds" for a sub-second limit, so short limits are in ms.
+function formatDuration(ms) {
+  return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 100) / 10} seconds`;
 }
 
 // 502: the network call failed before NOAA produced a response (DNS, connection

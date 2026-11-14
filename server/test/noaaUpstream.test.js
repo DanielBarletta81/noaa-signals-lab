@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fetchNoaaProduct } from "../src/adapters/noaaClient.js";
 import { resolveTimeoutMs } from "../src/adapters/noaaClient.js";
+import { UpstreamTimeoutError } from "../src/errors.js";
 
 const fixture = (name) =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
@@ -166,6 +167,17 @@ describe("fetchNoaaProduct: timeouts and abortable requests", () => {
       fetchImpl: async () => jsonResponse(200, { data: [] }),
     });
     assert.equal(result.status, "empty");
+  });
+});
+
+describe("UpstreamTimeoutError: the public message states the real limit", () => {
+  it("reports sub-second limits in milliseconds, never as zero seconds", () => {
+    assert.equal(new UpstreamTimeoutError(400).publicMessage, "NOAA did not respond within 400 ms.");
+  });
+
+  it("reports whole-second and fractional-second limits in seconds", () => {
+    assert.equal(new UpstreamTimeoutError(8000).publicMessage, "NOAA did not respond within 8 seconds.");
+    assert.equal(new UpstreamTimeoutError(1500).publicMessage, "NOAA did not respond within 1.5 seconds.");
   });
 });
 
