@@ -1,5 +1,6 @@
 import express from "express";
 import { fetchNoaaProduct } from "../adapters/noaaClient.js";
+import { STATIONS } from "../config/allowlist.js";
 import { ApiError } from "../errors.js";
 import { processSignal } from "../pipeline/signalProcessor.js";
 import { parseSignalParams } from "../validation/signalParams.js";
@@ -36,7 +37,7 @@ signalsRouter.get("/signals", async (req, res) => {
       station,
       product,
       range,
-      stationName: result.stationName,
+      stationName: result.stationName ?? STATIONS[station]?.name ?? null,
       source: {
         name: "NOAA CO-OPS Data Retrieval API",
         url: result.sourceUrl,
