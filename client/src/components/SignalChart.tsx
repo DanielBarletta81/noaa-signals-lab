@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   CartesianGrid,
   Line,
@@ -30,6 +31,14 @@ const NUMERAL = "#f4efe3";
 // The chart is a picture of the accepted observations only. Every value is also
 // listed in the table beneath it, so the chart is not the only route to the data.
 export function SignalChart({ series, selectedIso = null, reducedMotion = false }: SignalChartProps) {
+  // Animate the line once, on first render only. A later re-render (for example, when an
+  // hour is selected) must not replay the entrance, or the series would vanish briefly.
+  const hasAnimated = useRef(false);
+  useEffect(() => {
+    hasAnimated.current = true;
+  }, []);
+  const animate = !reducedMotion && !hasAnimated.current;
+
   if (series.length === 0) return null;
 
   const values = series.map((point) => point.value);
@@ -87,7 +96,7 @@ export function SignalChart({ series, selectedIso = null, reducedMotion = false 
               strokeWidth={2.25}
               dot={{ r: 2.5, fill: SEA, stroke: SEA }}
               activeDot={{ r: 5, fill: NUMERAL, stroke: SEA }}
-              isAnimationActive={!reducedMotion}
+              isAnimationActive={animate}
             />
           </LineChart>
         </ResponsiveContainer>

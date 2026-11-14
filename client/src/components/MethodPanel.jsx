@@ -3,9 +3,9 @@
 // load, so the reader can always see how a result would have been produced.
 export function MethodPanel() {
   return (
-    <details className="panel method" id="method">
+    <details className="panel panel--lab method" id="method">
       <summary>
-        <span className="panel-kicker">Methodology</span>
+        <span className="panel-kicker">Lab bench · methodology</span>
         <span className="method-title">What was measured, and how</span>
       </summary>
       <ol className="method-steps">
