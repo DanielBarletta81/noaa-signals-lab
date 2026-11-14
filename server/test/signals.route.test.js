@@ -131,6 +131,7 @@ describe("GET /api/signals: empty valid datasets", () => {
 
     assert.equal(body.emptyReason, "noaa_no_data_message");
     assert.equal(body.absenceStatus, "not_established");
+    assert.equal(body.stationName, "Providence", "no-data responses still name the verified station");
     assert.equal(body.quality.flagPolicy, "preserved_not_interpreted");
     assert.ok(body.processed.limitations.length >= 3);
   });
