@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNoaaSignal } from "./hooks/useNoaaSignal";
+import { useSnapshots } from "./hooks/useSnapshots.js";
 import { SignalChart } from "./components/SignalChart.tsx";
 import { SummaryCards } from "./components/SummaryCards.tsx";
 import { InsightPanel } from "./components/InsightPanel.tsx";
@@ -9,10 +10,13 @@ import { StatePanel } from "./components/StatePanel.jsx";
 import { QualityPanel } from "./components/QualityPanel.jsx";
 import { MethodPanel } from "./components/MethodPanel.jsx";
 import { DataTable } from "./components/DataTable.jsx";
+import { SnapshotPanel } from "./components/SnapshotPanel.jsx";
+import { SnapshotBanner } from "./components/SnapshotBanner.jsx";
 import { usePrefersReducedMotion } from "./view/motion.js";
 import { buildCoverage } from "./view/coverage.js";
 import { formatUtcLong } from "./view/format.js";
 import { describeEmpty, describeError } from "./view/states.js";
+import { canSaveLive, snapshotStatusLine, viewFromSnapshot } from "./view/snapshots.js";
 
 const REASON_WORDS = {
   malformed_row: "the row was not a valid record",
@@ -60,9 +64,35 @@ function stationLabel(data) {
 }
 
 export default function App() {
-  const { data, status, error, errorCode, reload } = useNoaaSignal();
+  const live = useNoaaSignal();
+  const snapshots = useSnapshots();
   const reducedMotion = usePrefersReducedMotion();
   const [selectedIso, setSelectedIso] = useState(null);
+  // A saved copy on screen in place of the live response. Null means the live view.
+  const [openSnapshot, setOpenSnapshot] = useState(null);
+  const bannerHeadingRef = useRef(null);
+  const mastheadHeadingRef = useRef(null);
+  // Where focus should go after the next view change. Set before the change, read after it.
+  const focusRequest = useRef(null);
+
+  useEffect(() => {
+    const target = focusRequest.current;
+    focusRequest.current = null;
+    if (target === "banner") bannerHeadingRef.current?.focus();
+    if (target === "masthead") mastheadHeadingRef.current?.focus();
+  }, [openSnapshot]);
+
+  // Everything below reads the active view. For a saved copy it is the copy, so the
+  // chart, coverage, and quality panels show exactly what was saved.
+  const view = openSnapshot ?? {
+    data: live.data,
+    status: live.status,
+    error: live.error,
+    errorCode: live.errorCode,
+    snapshot: null,
+  };
+  const { data, status, error, errorCode } = view;
+  const snapshotMeta = view.snapshot;
 
   const processed = data?.processed;
 
@@ -101,16 +131,44 @@ export default function App() {
   const errorState = status === "error" ? describeError(errorCode) : null;
   const emptyState = status === "empty" && data ? describeEmpty(data) : null;
 
-  const statusLine = {
+  const liveStatusLine = {
     loading: "Loading observations from NOAA through the signal service…",
     ready: `${processed?.summary?.count ?? 0} accepted observations · retrieved ${data ? formatUtcLong(data.source.retrievedAt) : ""}`,
     empty: "No plottable observations for this request",
     error: "Observations are not available",
   }[status];
+  const statusLine = snapshotMeta ? snapshotStatusLine(snapshotMeta, data) : liveStatusLine;
+
+  // Save state belongs to the live set. A saved copy has no retrieval ID to save again.
+  const liveRetrievalId = typeof live.data?.retrievalId === "string" ? live.data.retrievalId : null;
+  const liveCanSave = canSaveLive({ status: live.status, data: live.data, savedAs: snapshots.savedAs });
+  const liveSavedAsId =
+    liveRetrievalId !== null && Object.hasOwn(snapshots.savedAs, liveRetrievalId)
+      ? snapshots.savedAs[liveRetrievalId]
+      : null;
 
   function retry() {
     setSelectedIso(null);
-    reload();
+    live.reload();
+  }
+
+  async function handleOpenSnapshot(id) {
+    const opened = await snapshots.openSaved(id);
+    if (!opened) return;
+    focusRequest.current = "banner";
+    setSelectedIso(null);
+    setOpenSnapshot(viewFromSnapshot(opened));
+  }
+
+  function returnToLive() {
+    snapshots.cancelOpen();
+    focusRequest.current = "masthead";
+    setSelectedIso(null);
+    setOpenSnapshot(null);
+  }
+
+  async function handleSave() {
+    if (liveRetrievalId !== null) await snapshots.saveRetrieval(liveRetrievalId);
   }
 
   return (
@@ -121,7 +179,9 @@ export default function App() {
 
       <header className="masthead">
         <p className="kicker">NOAA CO-OPS observations · measured, not interpreted</p>
-        <h1>Water temperature at {stationLabel(data)}</h1>
+        <h1 ref={mastheadHeadingRef} tabIndex={-1}>
+          Water temperature at {stationLabel(data)}
+        </h1>
         <p className="deck">
           The measured values, their UTC times, and the coverage of every hour in the window.
           Nothing is interpreted here beyond what the Methodology states.
@@ -137,6 +197,10 @@ export default function App() {
           {statusLine}
         </p>
       </header>
+
+      {snapshotMeta && (
+        <SnapshotBanner snapshot={snapshotMeta} headingRef={bannerHeadingRef} onReturn={returnToLive} />
+      )}
 
       <main id="main" className="layout">
         <div className="primary" id="observation" tabIndex={-1}>
@@ -198,7 +262,22 @@ export default function App() {
           )}
         </div>
 
-        <aside className="secondary" aria-label="Context, data quality, and methodology">
+        <aside className="secondary" aria-label="Saved copies, context, data quality, and methodology">
+          <SnapshotPanel
+            mode={snapshotMeta ? "snapshot" : "live"}
+            canSave={liveCanSave}
+            savedAsId={liveSavedAsId}
+            saveStatus={snapshots.saveStatus}
+            saveError={snapshots.saveError}
+            saveEvent={snapshots.saveEvent}
+            onSave={handleSave}
+            list={snapshots.list}
+            more={snapshots.more}
+            onLoadMore={() => snapshots.loadOlder(snapshots.list.items.length)}
+            opening={snapshots.opening}
+            activeId={snapshotMeta?.id ?? null}
+            onOpen={handleOpenSnapshot}
+          />
           {status === "ready" && <SummaryCards summary={processed?.summary} />}
           {status === "ready" && (
             <InsightPanel insight={processed?.insight} limitations={processed?.limitations} />

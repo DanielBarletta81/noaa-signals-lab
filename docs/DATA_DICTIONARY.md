@@ -110,3 +110,28 @@ Before flags are used for filtering, their meanings must be confirmed against NO
 - `server`: `npm ci`, then `npm test`.
 - `client`: `npm ci`, then `npm run lint` and `npm run build`.
 - The root `package.json` is not used by the server or client builds. Its status is an open question for the maintainer (the working-tree change removes dependencies that the committed version listed).
+
+## Excluded rows (`quality.excluded`)
+
+| Field | Meaning |
+|---|---|
+| `index` | Zero-based position of the row in NOAA's `data` array. A duplicate-timestamp exclusion carries the position of the later row. Earlier builds reported `null` for these. |
+| `reason` | One of the exclusion reasons above |
+| `rawTimestamp` | NOAA's `t` text as received, or `null` |
+| `rawValue` | NOAA's `v` text as received, or `null` |
+| `flags` | `{quality, flag}`: NOAA's `q` and `f` for the row. Not interpreted. Earlier builds did not attach flags to excluded rows. |
+
+The list is sorted by `index`, so exclusions appear in NOAA's order. The acceptance rules are unchanged.
+
+## Saved snapshots (SQLite)
+
+Snapshots live in `server/data/noaa-signals.sqlite` by default, or at `SNAPSHOT_DB_PATH`. Migrations are numbered SQL files in `server/src/db/migrations/`. `PRAGMA user_version` records the schema version, and the server refuses a database written by a newer version.
+
+| Table | Purpose |
+|---|---|
+| `snapshots` | One row per save: station, product, requested window, NOAA status, source name and URL, `retrieved_at` (the original NOAA retrieval), `saved_at` (when the copy was saved), `source_mode`, `demo_label`, and row counts. A CHECK constraint enforces `received_rows = accepted_rows + excluded_rows`. |
+| `observations` | One row per NOAA row, in NOAA's order (`row_order`). Accepted and excluded rows are both stored. `observed_at_utc` is null when the timestamp could not be read. `value` is null unless the row was accepted. `exclusion_reason` is set for excluded rows. `flag_quality` and `flag_flag` hold NOAA's `q` and `f` as JSON text. |
+
+Constraints: `observations.snapshot_id` references `snapshots.id` with `ON DELETE CASCADE`, and foreign keys are enabled. Each save is one transaction, so a snapshot and its observations are stored together or not at all. All SQL is parameterized.
+
+`source_mode` is `live` (saved from a response the app retrieved) or `demonstration` (a captured fixture, labelled with `demo_label`). A demonstration copy's `retrieved_at` is the approximate capture time stated in its label, not a live retrieval.

@@ -2,6 +2,23 @@
 
 Short, dated records of decisions that shape what the interface shows and how it can be verified. Newest first.
 
+## 2026-11-15: Saved observation snapshots (local SQLite, explicit save)
+
+**Decision.** A visitor saves the NOAA response on screen with an explicit button. The server keeps each loaded response under a random retrieval ID for 30 minutes. Saving stores the server's copy, so the browser cannot submit observation data. Snapshots are kept in SQLite through Node's built-in `node:sqlite`.
+
+**Why.**
+- The browser cannot forge a saved observation. It sends a retrieval ID, and the server saves what it fetched from NOAA.
+- Reopening rebuilds the same signal body through the same builder as a live response, so the chart, coverage, and quality panels behave the same way.
+- `node:sqlite` needs no native build step and no new dependency. `better-sqlite3` is a common alternative, but it adds a native dependency that needs approval first.
+
+**Consequences.**
+- `node:sqlite` is experimental on this Node line, so startup prints an `ExperimentalWarning`. Revisit when it is stable, or if a native dependency is approved.
+- Saving depends on the retrieval still being held. After a restart, or after 30 minutes, the user loads the observations again.
+- Demonstration copies are labelled in the stored data and in the interface, so they cannot be read as current NOAA data.
+- Node 22.23.5 (`.nvmrc`) was not installed on the machine used for this feature. Verification ran on Node 23.7.0, where `node:sqlite` is also available without a flag. Re-run on 22.23.5 before relying on it.
+
+**Contract change in the same entry.** Excluded rows now carry their row position and their `q`/`f` flags, and duplicate-timestamp exclusions report a real position instead of `null`. See `docs/DATA_DICTIONARY.md`. The acceptance rules did not change.
+
 ## 2026-11-14: Three knowledge environments (instrument, field note, lab bench)
 
 **Status:** implemented on `feature/noaa-immersive-environments`. Not yet merged.

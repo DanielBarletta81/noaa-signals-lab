@@ -141,6 +141,7 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 | `PORT` | server environment | `4200` | Port for the Express server |
 | `NOAA_TIMEOUT_MS` | server environment | `8000` | Time allowed for each NOAA request (1 to 60000) |
 | `API_PROXY_TARGET` | shell, for `npm run dev` or `preview` in `client/` | `http://localhost:4200` | Where the Vite proxy forwards `/api` |
+| `SNAPSHOT_DB_PATH` | server environment | `server/data/noaa-signals.sqlite` | Location of the saved-snapshot SQLite file. Use a writable path on persistent storage. Set by the operator only; the browser cannot choose it. |
 | `VITE_API_BASE_URL` | `client/.env.local`, at build time | empty (same origin) | API origin for a deployed build. Must be `https`, except `http://localhost`. See `client/.env.example`. |
 
 `VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable.
@@ -158,6 +159,31 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 | 400 `invalid_parameter` | A station, product, or range is not on the allowlist (only `8454000`, `water_temperature`, 1 to 72 hours) |
 | 502 `upstream_error` / `upstream_unreachable` | NOAA failed or could not be reached |
 | 504 `upstream_timeout` | NOAA did not respond in time |
+
+Saved snapshots (see below):
+
+| Method and path | Meaning |
+|---|---|
+| `POST /api/snapshots` with `{"retrievalId": "..."}` | Save the response the server still holds under that ID. Returns 201 with the snapshot summary. 404 `retrieval_not_found` once the retrieval has expired or the server has restarted. |
+| `GET /api/snapshots?limit=10&offset=0` | List saved snapshots, newest first. `limit` 1 to 50, `offset` 0 to 100000. |
+| `GET /api/snapshots/:id` | One snapshot and its rebuilt signal body. 404 `snapshot_not_found` for an unknown ID. |
+
+## Saved snapshots
+
+A saved snapshot is a copy of one loaded NOAA response, kept in a local SQLite database on the server. Saving happens only when you press **Save these observations**. Opening a saved copy reads the database. It never contacts NOAA, and the page labels it as a saved copy with its original retrieval time and its save time. Saved copies do not update.
+
+- A saved copy keeps every row NOAA returned: accepted values, excluded rows with their reasons, and the `q` and `f` quality flags. Nothing is filled in, and no missing hour gets a value.
+- Saving uses a retrieval the server still holds: up to 20 loads, each kept for 30 minutes, in memory. After a server restart, or once the time has passed, saving says the set is no longer available, and you load the observations again.
+- When saving, the browser sends only a retrieval ID. It cannot send observation data, a file name, or a path.
+- Demonstration copies come from a captured NOAA fixture, not from a live request. They are labelled "Demonstration" in the list and in the banner. Create one with `(cd server && npm run snapshots:seed-demo)`. Running it again reports that the snapshot already exists.
+
+**Storage.** The default file is `server/data/noaa-signals.sqlite`, with `-wal` and `-shm` companions while the server runs. Set `SNAPSHOT_DB_PATH` to put it elsewhere. The directory is created when missing. Git ignores these files, and they hold no credentials.
+
+**Persistence limits.** SQLite needs a writable disk that survives restarts. That is fine for local use. Ephemeral hosts (containers, or platforms that reset the filesystem on deploy or restart) lose saved copies, so do not describe this as production persistence on such a host. There is no backup and no support for several servers sharing one file.
+
+**Runtime.** The server uses Node's built-in `node:sqlite`, which is experimental in this Node line, so startup prints an `ExperimentalWarning`. The schema is versioned. Migrations run in a transaction at startup, and the server refuses a database written by a newer version.
+
+**Verification of this feature.** Run on Node 23.7.0 on the development machine, because Node 22.23.5 was not installed there. Server tests: 172 pass, 0 fail. Client tests: 122 pass, 0 fail. Lint is clean, and the production build succeeds. A scripted Chrome run covered save, the list, reopening with no NOAA request, returning to live, keyboard use, a 390 px width, and reduced motion. Automated checks do not establish WCAG conformance.
 
 ## Engineering choices and tradeoffs
 

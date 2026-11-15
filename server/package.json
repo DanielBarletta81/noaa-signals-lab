@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "snapshots:seed-demo": "node scripts/seed-demo-snapshot.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -232,15 +232,19 @@ export function normalizeNoaaResponse(payload, meta) {
     const previous = points.at(-1);
     if (previous && previous.timestampUtc === point.timestampUtc) {
       excluded.push({
-        index: null,
+        index: point.rowIndex,
         reason: "duplicate_timestamp",
         rawTimestamp: point.observedAtRaw,
         rawValue: point.rawValue,
+        flags: point.flags,
       });
     } else {
       points.push(point);
     }
   }
+
+  // Report exclusions in NOAA row order, so duplicates sit where NOAA placed them.
+  excluded.sort((a, b) => a.index - b.index);
 
   return buildResult({
     meta,
@@ -258,20 +262,21 @@ export function normalizeNoaaResponse(payload, meta) {
 
 function normalizeRow(row, index, meta) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
-    return excludeRow(index, "malformed_row", null, null);
+    return excludeRow(index, "malformed_row", null, null, NO_FLAGS);
   }
 
   const rawTimestamp = scalarOrNull(row.t);
   const rawValue = scalarOrNull(row.v);
+  const flags = rowFlags(row);
 
   const timestamp = parseNoaaGmtTimestamp(row.t);
   if (!timestamp.ok) {
-    return excludeRow(index, "malformed_timestamp", rawTimestamp, rawValue);
+    return excludeRow(index, "malformed_timestamp", rawTimestamp, rawValue, flags);
   }
 
   const measurement = classifyMeasurement(row.v);
   if (!measurement.ok) {
-    return excludeRow(index, measurement.reason, rawTimestamp, rawValue);
+    return excludeRow(index, measurement.reason, rawTimestamp, rawValue, flags);
   }
 
   return {
@@ -279,14 +284,14 @@ function normalizeRow(row, index, meta) {
     point: {
       station: meta.station,
       product: meta.product,
+      // Position of this row in NOAA's data array. Kept so saved snapshots can restore
+      // the original row order. Not part of the scientific acceptance rules.
+      rowIndex: index,
       timestampUtc: timestamp.iso,
       observedAtRaw: row.t,
       value: measurement.value,
       rawValue: row.v,
-      flags: {
-        quality: row.q ?? null,
-        flag: row.f ?? null,
-      },
+      flags,
     },
   };
 }
@@ -326,8 +331,16 @@ function normalizeZero(value) {
   return value === 0 ? 0 : value;
 }
 
-function excludeRow(index, reason, rawTimestamp, rawValue) {
-  return { ok: false, exclusion: { index, reason, rawTimestamp, rawValue } };
+// NOAA's q and f values as received. Carried for every row, accepted or excluded.
+// Not interpreted: see FLAG_POLICY.
+const NO_FLAGS = Object.freeze({ quality: null, flag: null });
+
+function rowFlags(row) {
+  return { quality: row.q ?? null, flag: row.f ?? null };
+}
+
+function excludeRow(index, reason, rawTimestamp, rawValue, flags) {
+  return { ok: false, exclusion: { index, reason, rawTimestamp, rawValue, flags } };
 }
 
 function scalarOrNull(value) {
