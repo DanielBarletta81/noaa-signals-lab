@@ -77,3 +77,15 @@ export function mergeSnapshotPages(existing, incoming) {
 export function hasMoreSnapshots({ loaded, total }) {
   return loaded < total;
 }
+
+// Stated wherever the list appears. The archive has no owners and no private copies.
+export const ARCHIVE_NOTE =
+  "Saved copies are shared. Everyone who uses this server sees the same list and can open any copy. There are no accounts, and copies cannot be deleted here. Each copy holds only public NOAA data.";
+
+// What the save panel offers after a failed save. A retrieval that has expired, was
+// evicted, or was lost in a restart returns retrieval_not_found. Saving it again cannot
+// succeed, so the only useful action is to load the observations again.
+export function saveFailureAction(code) {
+  if (code === "retrieval_not_found") return { kind: "reload", label: "Load observations again" };
+  return null;
+}

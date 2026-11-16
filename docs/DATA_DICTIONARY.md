@@ -123,15 +123,36 @@ Before flags are used for filtering, their meanings must be confirmed against NO
 
 The list is sorted by `index`, so exclusions appear in NOAA's order. The acceptance rules are unchanged.
 
+## Accepted rows (`quality.accepted`)
+
+Added on 2026-11-15. It lists each accepted row in NOAA's `data` order. `quality.accepted` and `quality.excluded` together give every row NOAA returned, once each, at its `index`. `processed.series` is in time order and does not carry these fields.
+
+| Field | Meaning |
+|---|---|
+| `rowIndex` | Zero-based position of the row in NOAA's `data` array |
+| `observedAtRaw` | NOAA's `t` text as received, for example `"2026-11-15 01:00"`. Time zone is GMT, because the request sets `time_zone=gmt`. |
+| `timestampUtc` | The same instant as an ISO 8601 UTC string, parsed without the JavaScript string parser |
+| `value` | The parsed number, in °C for `water_temperature` (`units=metric`) |
+| `rawValue` | NOAA's `v` as received: a string such as `"12.30"`, or a number. The text is not reformatted, so `"12.30"` stays `"12.30"`. |
+| `flags` | `{quality, flag}`: NOAA's `q` and `f` for the row. `null` when NOAA sent no value for that field. Not interpreted. |
+
+Duplicate-timestamp rows are not accepted. The first row for each hour in NOAA's order is accepted, and the later one is listed in `quality.excluded` with `duplicate_timestamp`. That is an assumption, not a verified NOAA rule.
+
+Non-scalar `t` or `v` values (objects or arrays) are recorded as `null`, so their original shape is not kept. NOAA's documented responses use strings and numbers only.
+
 ## Saved snapshots (SQLite)
 
 Snapshots live in `server/data/noaa-signals.sqlite` by default, or at `SNAPSHOT_DB_PATH`. Migrations are numbered SQL files in `server/src/db/migrations/`. `PRAGMA user_version` records the schema version, and the server refuses a database written by a newer version.
+
+The archive is shared. There are no owners or accounts. Snapshot IDs are sequential integers and are listed for anyone. At most `SNAPSHOT_MAX_COUNT` copies are stored (default 500), and a save beyond that is refused with 507 `archive_full`. Nothing is deleted automatically. Retrieval IDs are never stored in the database.
 
 | Table | Purpose |
 |---|---|
 | `snapshots` | One row per save: station, product, requested window, NOAA status, source name and URL, `retrieved_at` (the original NOAA retrieval), `saved_at` (when the copy was saved), `source_mode`, `demo_label`, and row counts. A CHECK constraint enforces `received_rows = accepted_rows + excluded_rows`. |
 | `observations` | One row per NOAA row, in NOAA's order (`row_order`). Accepted and excluded rows are both stored. `observed_at_utc` is null when the timestamp could not be read. `value` is null unless the row was accepted. `exclusion_reason` is set for excluded rows. `flag_quality` and `flag_flag` hold NOAA's `q` and `f` as JSON text. |
 
-Constraints: `observations.snapshot_id` references `snapshots.id` with `ON DELETE CASCADE`, and foreign keys are enabled. Each save is one transaction, so a snapshot and its observations are stored together or not at all. All SQL is parameterized.
+Constraints: `observations.snapshot_id` references `snapshots.id` with `ON DELETE CASCADE`, and foreign keys are enabled. Each save is one transaction, so a snapshot and its observations are stored together or not at all. The capacity check runs inside the same transaction. All SQL is parameterized.
 
 `source_mode` is `live` (saved from a response the app retrieved) or `demonstration` (a captured fixture, labelled with `demo_label`). A demonstration copy's `retrieved_at` is the approximate capture time stated in its label, not a live retrieval.
+
+Storage cost, measured on Node 22.23.5: about 4 KB on disk per 24-hour copy.

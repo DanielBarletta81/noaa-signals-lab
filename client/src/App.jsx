@@ -149,6 +149,7 @@ export default function App() {
 
   function retry() {
     setSelectedIso(null);
+    snapshots.clearSaveError();
     live.reload();
   }
 
@@ -269,8 +270,10 @@ export default function App() {
             savedAsId={liveSavedAsId}
             saveStatus={snapshots.saveStatus}
             saveError={snapshots.saveError}
+            saveErrorCode={snapshots.saveErrorCode}
             saveEvent={snapshots.saveEvent}
             onSave={handleSave}
+            onReloadObservations={retry}
             list={snapshots.list}
             more={snapshots.more}
             onLoadMore={() => snapshots.loadOlder(snapshots.list.items.length)}

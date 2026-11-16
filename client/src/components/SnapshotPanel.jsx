@@ -1,5 +1,12 @@
 import { useEffect, useRef } from "react";
-import { hasMoreSnapshots, productLabel, snapshotTimes, sourceNoteFor } from "../view/snapshots.js";
+import {
+  ARCHIVE_NOTE,
+  hasMoreSnapshots,
+  productLabel,
+  saveFailureAction,
+  snapshotTimes,
+  sourceNoteFor,
+} from "../view/snapshots.js";
 
 // Save the live observation set, and list and open saved copies. Buttons use
 // aria-disabled instead of disabled while busy, so keyboard focus is never dropped.
@@ -9,8 +16,10 @@ export function SnapshotPanel({
   savedAsId,
   saveStatus,
   saveError,
+  saveErrorCode,
   saveEvent,
   onSave,
+  onReloadObservations,
   list,
   more,
   onLoadMore,
@@ -28,6 +37,8 @@ export function SnapshotPanel({
 
   const saving = saveStatus === "saving";
   const olderBusy = more.status === "loading";
+  // When the retrieval is gone, saving again cannot succeed, so offer a fresh load instead.
+  const recovery = saveFailureAction(saveErrorCode);
 
   return (
     <section className="panel panel--lab snapshot-panel" aria-labelledby="snapshot-title">
@@ -37,6 +48,7 @@ export function SnapshotPanel({
         Saving keeps this NOAA response, with its excluded rows and quality flags, as it was when saved.
         Opening a saved copy does not contact NOAA.
       </p>
+      <p className="panel-note snapshot-archive-note">{ARCHIVE_NOTE}</p>
 
       {mode === "live" ? (
         <div className="snapshot-save">
@@ -44,6 +56,10 @@ export function SnapshotPanel({
             <p className="snapshot-notice" role="status" tabIndex={-1} ref={noticeRef}>
               Saved as snapshot {savedAsId}. It appears in the list below.
             </p>
+          ) : recovery ? (
+            <button type="button" className="snapshot-button" onClick={onReloadObservations}>
+              {recovery.label}
+            </button>
           ) : canSave ? (
             <button
               type="button"
@@ -64,7 +80,7 @@ export function SnapshotPanel({
         </div>
       ) : (
         <p className="panel-note">
-          You are viewing a saved copy, which is read-only here. Return to live observations to save a new copy.
+          You are viewing a saved copy, which is read-only here. Return to current session to save a new copy.
         </p>
       )}
 

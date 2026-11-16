@@ -2,9 +2,18 @@
 //
 // The save action saves what the server itself retrieved and normalized, identified
 // by a retrieval ID. The browser never sends observation data back to be stored, so a
-// client cannot save data that NOAA did not return. The store is bounded (a fixed
-// number of entries and a time limit) and is lost when the process restarts. Saved
-// snapshots are stored in SQLite; retrievals are not.
+// client cannot save data that NOAA did not return.
+//
+// Retention, in the three ways a retrieval can stop being available:
+//   1. Expiry: each retrieval is kept for RETRIEVAL_TTL_MS (30 minutes) after it was made.
+//   2. Capacity: at most RETRIEVAL_LIMIT are held. The oldest is dropped first. The store
+//      is shared by every visitor, so a busy server can drop a retrieval within minutes.
+//   3. Restart: the store lives in process memory and is empty after any restart.
+// In each case a save returns 404 retrieval_not_found, and the browser offers a fresh
+// load. Saved snapshots are in SQLite and are not affected by any of these.
+//
+// A retrieval ID is a random, unguessable string. It is not authorization. Anyone who
+// holds an ID can save that retrieval once, and no one can read other copies through it.
 
 import { randomUUID } from "node:crypto";
 
@@ -21,6 +30,8 @@ export function createRetrievalStore({
   now = () => Date.now(),
   idFactory = randomUUID,
 } = {}) {
+  // id -> { value, createdAt, savedSnapshotId }. Map keeps insertion order, so the first
+  // key is the oldest entry and is the one dropped at capacity.
   const entries = new Map();
 
   function prune() {
@@ -36,7 +47,7 @@ export function createRetrievalStore({
   return {
     put(value) {
       const id = idFactory();
-      entries.set(id, { value, createdAt: now() });
+      entries.set(id, { value, createdAt: now(), savedSnapshotId: null });
       prune();
       return id;
     },
@@ -44,6 +55,18 @@ export function createRetrievalStore({
       prune();
       const entry = entries.get(id);
       return entry ? entry.value : null;
+    },
+    // The snapshot this retrieval was saved as, or null. Lets a repeated save of the
+    // same retrieval return the existing copy instead of writing a second one.
+    savedSnapshotId(id) {
+      prune();
+      const entry = entries.get(id);
+      return entry ? entry.savedSnapshotId : null;
+    },
+    recordSave(id, snapshotId) {
+      prune();
+      const entry = entries.get(id);
+      if (entry) entry.savedSnapshotId = snapshotId;
     },
     size() {
       prune();

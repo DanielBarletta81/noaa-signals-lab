@@ -7,11 +7,22 @@
 //   npm run snapshots:seed-demo        (uses SNAPSHOT_DB_PATH, or the default location)
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { resolveSnapshotDbPath } from "../src/config/storage.js";
 import { openDatabase } from "../src/db/connection.js";
 import { buildNoaaUrl, normalizeNoaaResponse } from "../src/adapters/noaaClient.js";
 import { buildSignalBody } from "../src/signals/buildResponse.js";
 import { saveSnapshot } from "../src/snapshots/repository.js";
+
+// True when this module is the script Node was asked to run. import.meta.url is
+// percent-encoded (a space becomes %20), so the path is converted to a URL before the
+// comparison. Comparing with a plain "file://" string silently skipped the seed for
+// any path containing a space or other character that needs encoding.
+export function isEntryPoint(moduleUrl, argvPath) {
+  if (typeof argvPath !== "string" || argvPath === "") return false;
+  return pathToFileURL(path.resolve(argvPath)).href === moduleUrl;
+}
 
 const STATION = "8454000";
 const PRODUCT = "water_temperature";
@@ -49,7 +60,7 @@ export function seedDemoSnapshot(db) {
 }
 
 // Run directly, not when imported by tests.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url, process.argv[1])) {
   const databasePath = resolveSnapshotDbPath();
   const db = openDatabase(databasePath);
   const { id, created } = seedDemoSnapshot(db);

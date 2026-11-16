@@ -17,6 +17,11 @@ function messageFor(error) {
   return UNEXPECTED;
 }
 
+// The machine-readable code from the server, such as retrieval_not_found, when there is one.
+function codeFor(error) {
+  return error instanceof SnapshotRequestError && typeof error.code === "string" ? error.code : null;
+}
+
 function currentBaseUrl() {
   return resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 }
@@ -26,7 +31,7 @@ function currentBaseUrl() {
 export function useSnapshots() {
   const [list, setList] = useState({ status: "loading", items: [], total: 0, error: null });
   const [more, setMore] = useState({ status: "idle", error: null });
-  const [saves, setSaves] = useState({ status: "idle", error: null, savedAs: {}, event: 0 });
+  const [saves, setSaves] = useState({ status: "idle", error: null, errorCode: null, savedAs: {}, event: 0 });
   const [opening, setOpening] = useState({ id: null, error: null });
   const listSeq = useRef(0);
   const openSeq = useRef(0);
@@ -75,19 +80,20 @@ export function useSnapshots() {
     async (retrievalId) => {
       if (savingRef.current) return null;
       savingRef.current = true;
-      setSaves((prev) => ({ ...prev, status: "saving", error: null }));
+      setSaves((prev) => ({ ...prev, status: "saving", error: null, errorCode: null }));
       try {
         const meta = await saveSnapshot({ baseUrl: currentBaseUrl(), retrievalId });
         setSaves((prev) => ({
           status: "saved",
           error: null,
+          errorCode: null,
           savedAs: { ...prev.savedAs, [retrievalId]: meta.id },
           event: prev.event + 1,
         }));
         reloadList();
         return meta;
       } catch (error) {
-        setSaves((prev) => ({ ...prev, status: "error", error: messageFor(error) }));
+        setSaves((prev) => ({ ...prev, status: "error", error: messageFor(error), errorCode: codeFor(error) }));
         return null;
       } finally {
         savingRef.current = false;
@@ -95,6 +101,12 @@ export function useSnapshots() {
     },
     [reloadList]
   );
+
+  // Clears a failed save once the observations have been loaded again, so an error about
+  // an expired retrieval does not stay on screen next to a retrieval that is new.
+  const clearSaveError = useCallback(() => {
+    setSaves((prev) => (prev.status === "error" ? { ...prev, status: "idle", error: null, errorCode: null } : prev));
+  }, []);
 
   // Opens one saved copy. Resolves with { snapshot, signal }, or null when the request
   // failed or was superseded. Opening never contacts NOAA.
@@ -125,11 +137,13 @@ export function useSnapshots() {
     savedAs: saves.savedAs,
     saveStatus: saves.status,
     saveError: saves.error,
+    saveErrorCode: saves.errorCode,
     saveEvent: saves.event,
     opening,
     reloadList,
     loadOlder,
     saveRetrieval,
+    clearSaveError,
     openSaved,
     cancelOpen,
   };

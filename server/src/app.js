@@ -7,7 +7,9 @@ import { createSignalsRouter } from "./routes/signals.js";
 import { createSnapshotsRouter } from "./routes/snapshots.js";
 import { defaultRetrievalStore } from "./retrievals/store.js";
 
-export function createApp({ db = null, retrievals = defaultRetrievalStore } = {}) {
+// snapshotOptions: { maxSnapshots, writeLimit } for the shared archive. Defaults apply
+// when omitted (see routes/snapshots.js).
+export function createApp({ db = null, retrievals = defaultRetrievalStore, snapshotOptions = {} } = {}) {
   const app = express();
 
   app.use(cors());
@@ -23,7 +25,7 @@ export function createApp({ db = null, retrievals = defaultRetrievalStore } = {}
 
   app.use("/api", createSignalsRouter({ retrievals }));
   if (db) {
-    app.use("/api", createSnapshotsRouter({ db, retrievals }));
+    app.use("/api", createSnapshotsRouter({ db, retrievals, ...snapshotOptions }));
   }
 
   return app;

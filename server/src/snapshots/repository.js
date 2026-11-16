@@ -1,9 +1,10 @@
 // Reads and writes saved snapshots. Every statement uses bound parameters. A snapshot
 // and all of its observations are written in one transaction, so either all of them
-// are stored or none are.
+// are stored or none are. The capacity check runs inside that same transaction.
 
-import { EXCLUSION_REASONS, FLAG_POLICY } from "../adapters/noaaClient.js";
+import { acceptedRecords, EXCLUSION_REASONS, FLAG_POLICY } from "../adapters/noaaClient.js";
 import { PRODUCTS } from "../config/allowlist.js";
+import { DEFAULT_MAX_SNAPSHOTS } from "../config/storage.js";
 import { buildSignalBody, SOURCE_NAME } from "../signals/buildResponse.js";
 
 // Upper bound on rows in one snapshot. A request can ask for at most 72 hours, so a
@@ -17,6 +18,14 @@ export class SnapshotTooLargeError extends Error {
   constructor(rowCount) {
     super(`A snapshot may hold at most ${MAX_SNAPSHOT_ROWS} rows; this one has ${rowCount}.`);
     this.name = "SnapshotTooLargeError";
+  }
+}
+
+export class SnapshotCapacityError extends Error {
+  constructor(limit) {
+    super(`The snapshot archive already holds the maximum of ${limit} copies.`);
+    this.name = "SnapshotCapacityError";
+    this.limit = limit;
   }
 }
 
@@ -37,9 +46,10 @@ export function withTransaction(db, work) {
 const encode = (value) => JSON.stringify(value === undefined ? null : value);
 const decode = (text) => JSON.parse(text);
 
-export function saveSnapshot(
+// Writes one snapshot and its rows. Must run inside withTransaction.
+function insertSnapshot(
   db,
-  { body, points, sourceMode, demoLabel = null, savedAt = new Date().toISOString() }
+  { body, points, sourceMode, demoLabel = null, savedAt = new Date().toISOString(), maxSnapshots = DEFAULT_MAX_SNAPSHOTS }
 ) {
   if (!SNAPSHOT_SOURCE_MODES.includes(sourceMode)) {
     throw new Error(`Unknown source mode: ${sourceMode}`);
@@ -87,62 +97,81 @@ export function saveSnapshot(
     );
   }
 
-  return withTransaction(db, () => {
-    const header = db
-      .prepare(
-        `INSERT INTO snapshots (
-           station_id, station_name, product, product_units, range_hours, interval_label,
-           time_zone, status, empty_reason, absence_status, noaa_message, source_name,
-           source_url, retrieved_at, saved_at, source_mode, demo_label, flag_policy,
-           received_rows, accepted_rows, excluded_rows
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        body.station,
-        body.stationName ?? null,
-        body.product,
-        PRODUCTS[body.product].units,
-        body.range,
-        body.source.interval,
-        body.source.timeZone,
-        body.status,
-        body.emptyReason ?? null,
-        body.absenceStatus ?? null,
-        body.source.noaaMessage ?? null,
-        body.source.name,
-        body.source.url,
-        body.source.retrievedAt,
-        savedAt,
-        sourceMode,
-        demoLabel,
-        quality.flagPolicy ?? FLAG_POLICY,
-        quality.receivedRows,
-        quality.acceptedRows,
-        quality.excludedRows
-      );
-    const snapshotId = Number(header.lastInsertRowid);
+  // Checked here, inside the transaction, so two saves cannot both pass the check.
+  // Nothing already saved is removed when the archive is full.
+  const { total } = db.prepare("SELECT COUNT(*) AS total FROM snapshots").get();
+  if (Number(total) >= maxSnapshots) throw new SnapshotCapacityError(maxSnapshots);
 
-    const insertObservation = db.prepare(
-      `INSERT INTO observations (
-         snapshot_id, row_order, observed_at_utc, observed_at_raw, raw_value, value,
-         accepted, exclusion_reason, flag_quality, flag_flag
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  const header = db
+    .prepare(
+      `INSERT INTO snapshots (
+         station_id, station_name, product, product_units, range_hours, interval_label,
+         time_zone, status, empty_reason, absence_status, noaa_message, source_name,
+         source_url, retrieved_at, saved_at, source_mode, demo_label, flag_policy,
+         received_rows, accepted_rows, excluded_rows
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      body.station,
+      body.stationName ?? null,
+      body.product,
+      PRODUCTS[body.product].units,
+      body.range,
+      body.source.interval,
+      body.source.timeZone,
+      body.status,
+      body.emptyReason ?? null,
+      body.absenceStatus ?? null,
+      body.source.noaaMessage ?? null,
+      body.source.name,
+      body.source.url,
+      body.source.retrievedAt,
+      savedAt,
+      sourceMode,
+      demoLabel,
+      quality.flagPolicy ?? FLAG_POLICY,
+      quality.receivedRows,
+      quality.acceptedRows,
+      quality.excludedRows
     );
-    for (const row of rows) {
-      insertObservation.run(
-        snapshotId,
-        row.rowOrder,
-        row.observedAtUtc,
-        encode(row.observedAtRaw),
-        encode(row.rawValue),
-        row.value,
-        row.accepted,
-        row.exclusionReason,
-        encode(row.flags?.quality),
-        encode(row.flags?.flag)
-      );
-    }
-    return snapshotId;
+  const snapshotId = Number(header.lastInsertRowid);
+
+  const insertObservation = db.prepare(
+    `INSERT INTO observations (
+       snapshot_id, row_order, observed_at_utc, observed_at_raw, raw_value, value,
+       accepted, exclusion_reason, flag_quality, flag_flag
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  for (const row of rows) {
+    insertObservation.run(
+      snapshotId,
+      row.rowOrder,
+      row.observedAtUtc,
+      encode(row.observedAtRaw),
+      encode(row.rawValue),
+      row.value,
+      row.accepted,
+      row.exclusionReason,
+      encode(row.flags?.quality),
+      encode(row.flags?.flag)
+    );
+  }
+  return snapshotId;
+}
+
+// Saves one snapshot in one transaction. Resolves with the new snapshot ID.
+export function saveSnapshot(db, args) {
+  return withTransaction(db, () => insertSnapshot(db, args));
+}
+
+// Saves one snapshot and reads back its metadata inside the same transaction. A failure
+// at any step therefore rolls back the whole save, and the caller never receives a
+// "saved" answer for a copy that was not committed.
+export function saveSnapshotDescribed(db, args) {
+  return withTransaction(db, () => {
+    const id = insertSnapshot(db, args);
+    const row = db.prepare("SELECT * FROM snapshots WHERE id = ?").get(id);
+    return { id, snapshot: toSnapshotMeta(row) };
   });
 }
 
@@ -166,6 +195,12 @@ export function toSnapshotMeta(row) {
     acceptedRows: row.accepted_rows,
     excludedRows: row.excluded_rows,
   };
+}
+
+// Metadata for one snapshot, or null. Never includes a retrieval ID or any other secret.
+export function getSnapshotMeta(db, id) {
+  const row = db.prepare("SELECT * FROM snapshots WHERE id = ?").get(Number(id));
+  return row ? toSnapshotMeta(row) : null;
 }
 
 export function listSnapshots(db, { limit = DEFAULT_LIST_LIMIT, offset = 0 } = {}) {
@@ -233,6 +268,8 @@ export function getSnapshot(db, id) {
         excludedRows: row.excluded_rows,
         excludedByReason,
         excluded,
+        // Built by the same function as the live adapter, so the accepted rows match.
+        accepted: acceptedRecords(points),
         flagPolicy: row.flag_policy,
       },
     },

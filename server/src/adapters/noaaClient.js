@@ -73,7 +73,7 @@ export function buildNoaaUrl({ station, product, range, interval = "h" }) {
  *   {
  *     status: "ok" | "empty" | "no_valid_observations",
  *     points: [{ station, product, timestampUtc, observedAtRaw, value, rawValue, flags }],
- *     quality: { receivedRows, acceptedRows, excludedRows, excludedByReason, excluded },
+ *     quality: { receivedRows, acceptedRows, excludedRows, excludedByReason, excluded, accepted },
  *     stationName, sourceUrl, retrievedAt
  *   }
  *
@@ -260,6 +260,23 @@ export function normalizeNoaaResponse(payload, meta) {
   });
 }
 
+// The accepted rows in NOAA's own row order, with the raw text, the raw value, and the
+// q/f flags of each row. With quality.excluded, this lists every row NOAA returned, in
+// the order NOAA sent it. Live responses and saved snapshots both use this function, so
+// the two shapes cannot drift apart.
+export function acceptedRecords(points) {
+  return [...points]
+    .sort((a, b) => a.rowIndex - b.rowIndex)
+    .map((point) => ({
+      rowIndex: point.rowIndex,
+      observedAtRaw: point.observedAtRaw,
+      timestampUtc: point.timestampUtc,
+      value: point.value,
+      rawValue: point.rawValue,
+      flags: point.flags,
+    }));
+}
+
 function normalizeRow(row, index, meta) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     return excludeRow(index, "malformed_row", null, null, NO_FLAGS);
@@ -377,6 +394,7 @@ function buildResult({
       excludedRows: excluded.length,
       excludedByReason,
       excluded,
+      accepted: acceptedRecords(points),
       // NOAA's f and q values are copied into each point unchanged. Their meanings
       // are not verified in this project, so no row is filtered by them.
       flagPolicy: FLAG_POLICY,

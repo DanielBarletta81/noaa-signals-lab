@@ -2,6 +2,28 @@
 
 Short, dated records of decisions that shape what the interface shows and how it can be verified. Newest first.
 
+## 2026-11-15: Saved snapshots are a shared archive, bounded and labelled
+
+**Decision.** Saved copies are shared by everyone who uses the server. There are no accounts, owners, or private copies, and copies cannot be deleted through the app. The archive has a capacity (`SNAPSHOT_MAX_COUNT`, default 500). Saves are limited per client address (10 per minute). A second save of the same retrieval returns the copy already made. The README, "Saved snapshots", states what these bounds do and do not promise.
+
+**Why.**
+- A save with no bound lets any client grow the database without limit. Each save is a write, so an unbounded archive is a storage problem on a public server.
+- Repeated saves of one retrieval (double clicks, retries, another tab) would create duplicates that look like separate observations. The retrieval record remembers which copy it became, so the second save returns that copy instead.
+- When the archive is full, the server refuses new saves and removes nothing. Deleting copies to make room would remove other people's saved work without their consent.
+- Retrieval IDs are random version-4 UUIDs. They make a retrieval hard to guess, but they are a bearer string, not authorization, and this design does not rely on them for access control. Snapshot IDs are sequential and readable by anyone, which is the intended behaviour of a shared list.
+
+**Consequences.**
+- The archive is public to anyone who can reach the server. The page says so. The data is public NOAA data, but this is not private storage.
+- A full archive refuses saves until an operator raises the limit or removes copies by hand. The app has no delete path.
+- Per-address limits do not work behind a reverse proxy until the server reads forwarded addresses. The app does not do that yet.
+- Loading observations (`GET /api/signals`) is not limited per address. Each load calls NOAA. A public deployment needs a limit in front of the server.
+
+**Retrieval retention.** A retrieval is kept in memory for 30 minutes, up to 20 loads in total for all visitors. It is dropped at expiry, when newer loads push it out, and at any restart. All three give 404 `retrieval_not_found`. The page then offers **Load observations again** and hides the Save button, because saving the same retrieval again cannot succeed.
+
+**Contract change.** `GET /api/signals` and saved copies now include `quality.accepted`: each accepted row in NOAA's order with its raw `t`, raw `v`, and `q`/`f` flags. It mirrors `quality.excluded`. Before this, the database held these fields but the API did not return them, while the quality panel said flags were kept with each reading. The acceptance rules did not change.
+
+**Naming.** The control that returns from a saved copy to the page's current session is labelled "Return to current session". It does not fetch new observations. "Return to live observations" implied a new request, which it does not make.
+
 ## 2026-11-15: Saved observation snapshots (local SQLite, explicit save)
 
 **Decision.** A visitor saves the NOAA response on screen with an explicit button. The server keeps each loaded response under a random retrieval ID for 30 minutes. Saving stores the server's copy, so the browser cannot submit observation data. Snapshots are kept in SQLite through Node's built-in `node:sqlite`.
@@ -15,7 +37,7 @@ Short, dated records of decisions that shape what the interface shows and how it
 - `node:sqlite` is experimental on this Node line, so startup prints an `ExperimentalWarning`. Revisit when it is stable, or if a native dependency is approved.
 - Saving depends on the retrieval still being held. After a restart, or after 30 minutes, the user loads the observations again.
 - Demonstration copies are labelled in the stored data and in the interface, so they cannot be read as current NOAA data.
-- Node 22.23.5 (`.nvmrc`) was not installed on the machine used for this feature. Verification ran on Node 23.7.0, where `node:sqlite` is also available without a flag. Re-run on 22.23.5 before relying on it.
+- Node 22.23.5 (`.nvmrc`) was not installed on the machine used for the first commit of this feature, so that run used Node 23.7.0. It has since been re-run on 22.23.5; see the 2026-11-15 entry above.
 
 **Contract change in the same entry.** Excluded rows now carry their row position and their `q`/`f` flags, and duplicate-timestamp exclusions report a real position instead of `null`. See `docs/DATA_DICTIONARY.md`. The acceptance rules did not change.
 

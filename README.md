@@ -107,7 +107,7 @@ React, Vite, Recharts, Node.js, Express, NOAA CO-OPS API, Node's built-in test r
 
 ## Run locally (feature branch)
 
-Requires the Node 22 version documented in `.nvmrc` and npm.
+Requires Node 22.23.5, the version in `.nvmrc`, and npm. This is the runtime used for the verification in the saved-snapshots section below.
 
 ```bash
 git clone https://github.com/DanielBarletta81/noaa-signals-lab.git
@@ -142,6 +142,7 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 | `NOAA_TIMEOUT_MS` | server environment | `8000` | Time allowed for each NOAA request (1 to 60000) |
 | `API_PROXY_TARGET` | shell, for `npm run dev` or `preview` in `client/` | `http://localhost:4200` | Where the Vite proxy forwards `/api` |
 | `SNAPSHOT_DB_PATH` | server environment | `server/data/noaa-signals.sqlite` | Location of the saved-snapshot SQLite file. Use a writable path on persistent storage. Set by the operator only; the browser cannot choose it. |
+| `SNAPSHOT_MAX_COUNT` | server environment | `500` | Most saved copies the shared archive holds (1 to 100000). A save beyond it is refused with 507. Invalid values fall back to 500. |
 | `VITE_API_BASE_URL` | `client/.env.local`, at build time | empty (same origin) | API origin for a deployed build. Must be `https`, except `http://localhost`. See `client/.env.example`. |
 
 `VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable.
@@ -164,16 +165,36 @@ Saved snapshots (see below):
 
 | Method and path | Meaning |
 |---|---|
-| `POST /api/snapshots` with `{"retrievalId": "..."}` | Save the response the server still holds under that ID. Returns 201 with the snapshot summary. 404 `retrieval_not_found` once the retrieval has expired or the server has restarted. |
-| `GET /api/snapshots?limit=10&offset=0` | List saved snapshots, newest first. `limit` 1 to 50, `offset` 0 to 100000. |
+| `POST /api/snapshots` with `{"retrievalId": "..."}` | Save the response the server still holds under that ID. 201 `created: true` with the new snapshot. 200 `created: false` with the copy already made, when the same retrieval is saved again. 404 `retrieval_not_found` once the retrieval has expired, been evicted, or the server has restarted. 507 `archive_full` when the archive holds its maximum. 429 `rate_limited` with `Retry-After` when one address saves too often. 503 `storage_unavailable` when the database fails; nothing is saved. |
+| `GET /api/snapshots?limit=10&offset=0` | List saved snapshots, newest first. `limit` 1 to 50, `offset` 0 to 100000. Anyone who can reach the server can read the list. |
 | `GET /api/snapshots/:id` | One snapshot and its rebuilt signal body. 404 `snapshot_not_found` for an unknown ID. |
+
+`GET /api/signals` returns `quality.accepted`, which lists each accepted row in NOAA's order with its raw `t` text, raw `v` value, and `q`/`f` flags. Together with `quality.excluded`, it accounts for every row NOAA returned. A saved copy returns the same lists.
 
 ## Saved snapshots
 
 A saved snapshot is a copy of one loaded NOAA response, kept in a local SQLite database on the server. Saving happens only when you press **Save these observations**. Opening a saved copy reads the database. It never contacts NOAA, and the page labels it as a saved copy with its original retrieval time and its save time. Saved copies do not update.
 
-- A saved copy keeps every row NOAA returned: accepted values, excluded rows with their reasons, and the `q` and `f` quality flags. Nothing is filled in, and no missing hour gets a value.
-- Saving uses a retrieval the server still holds: up to 20 loads, each kept for 30 minutes, in memory. After a server restart, or once the time has passed, saving says the set is no longer available, and you load the observations again.
+**What a copy keeps.** Every row NOAA returned: the accepted values as both the raw text and the parsed number, the NOAA `t` text, the excluded rows with their reasons and raw text, and the `q` and `f` flags on every row. The row's original position in NOAA's response is kept for every row. Nothing is filled in, and no missing hour gets a value. Units (°C) and time-zone metadata (GMT) are stored with each copy. The save and reopen checks in `server/test/snapshots.fidelity.test.js` compare these fields after the database is closed and reopened.
+
+**Who can see and change saved copies: everyone.** The archive is shared. There are no accounts, no owners, and no private copies. Anyone who can reach the server can list copies, open them, and add new ones. Copies cannot be deleted through the app. The data is public NOAA data, but the archive is still shared, and the page says so. Do not describe it as private storage.
+
+**Snapshot IDs are sequential and public.** Each copy has a number (1, 2, 3, …). Anyone who knows a number can open that copy, and the list shows every copy. This is by design for a shared archive, and it is not a security boundary.
+
+**Retrieval IDs are not authorization.** A retrieval ID is a random version-4 UUID given to the browser after a successful load. It identifies the server's in-memory copy of that load, so the save can copy what NOAA returned. It is a bearer string: whoever holds it can save that one retrieval. It does not identify a user, and it grants no right to read or change any other copy. Retrieval IDs are never stored in the database and never appear in the list or in a copy.
+
+**Retrieval retention.** The server holds each successful load in memory, up to 20 loads, for 30 minutes. Three things end that hold, and each gives the same answer, 404 `retrieval_not_found`, so the page can offer **Load observations again**:
+1. **Expiry:** 30 minutes after the load.
+2. **Capacity:** the store holds 20 loads for all visitors together. When it is full, the oldest is dropped. On a busy server, a load can be dropped within minutes of being made.
+3. **Restart:** the store is in memory. Any restart empties it. Saved copies in SQLite are not affected.
+
+**Bounds on writes and storage.** Two limits protect the archive. Both were chosen for a small public demonstration, and both can be changed by an operator.
+- **Capacity:** `SNAPSHOT_MAX_COUNT` (default 500 copies). When the archive is full, a save is refused with 507 and the message says that nothing was saved. Existing copies are never deleted to make room. Measured on Node 22.23.5, a 24-hour copy takes about 4 KB on disk, so 500 copies take about 2 MB.
+- **Saves per address:** 10 save attempts per minute per client address, with `Retry-After` on refusal. The address is the connection's address. The app does not yet read `X-Forwarded-For`, so behind a reverse proxy every visitor shares the proxy's address, and the limit applies to all of them together.
+- **Repeated saves:** saving the same retrieval again returns the copy already made, so repeated clicks do not create duplicates.
+
+These limits do not stop someone who wants to fill the archive. They bound how much one address can add per minute and how large the archive can grow. Loading observations (`GET /api/signals`) has no per-address limit in this version. Each load makes a request to NOAA, so a public deployment needs its own rate limit in front of the server.
+
 - When saving, the browser sends only a retrieval ID. It cannot send observation data, a file name, or a path.
 - Demonstration copies come from a captured NOAA fixture, not from a live request. They are labelled "Demonstration" in the list and in the banner. Create one with `(cd server && npm run snapshots:seed-demo)`. Running it again reports that the snapshot already exists.
 
@@ -181,9 +202,21 @@ A saved snapshot is a copy of one loaded NOAA response, kept in a local SQLite d
 
 **Persistence limits.** SQLite needs a writable disk that survives restarts. That is fine for local use. Ephemeral hosts (containers, or platforms that reset the filesystem on deploy or restart) lose saved copies, so do not describe this as production persistence on such a host. There is no backup and no support for several servers sharing one file.
 
+**Restart behaviour.** A completed save survives a clean stop and a crash. The server test `snapshots.restart.test.js` saves over HTTP, kills the process with SIGKILL, starts it again on the same file, and reopens the copy. A save that is still in progress when the process stops is not committed, and SQLite discards an uncommitted transaction when it next opens the file. That is SQLite's guarantee. It was not separately tested by killing a process in the middle of a save. Old retrieval IDs do not survive a restart. Load the observations again before saving.
+
 **Runtime.** The server uses Node's built-in `node:sqlite`, which is experimental in this Node line, so startup prints an `ExperimentalWarning`. The schema is versioned. Migrations run in a transaction at startup, and the server refuses a database written by a newer version.
 
-**Verification of this feature.** Run on Node 23.7.0 on the development machine, because Node 22.23.5 was not installed there. Server tests: 172 pass, 0 fail. Client tests: 122 pass, 0 fail. Lint is clean, and the production build succeeds. A scripted Chrome run covered save, the list, reopening with no NOAA request, returning to live, keyboard use, a 390 px width, and reduced motion. Automated checks do not establish WCAG conformance.
+**Verification of this feature.** The runtime checks below were run on Node 22.23.5, the version in `.nvmrc`, with `npm ci` in the root, `server`, and `client` directories.
+
+| Check | Result on Node 22.23.5 |
+|---|---|
+| Server tests (`npm test`) | 216 pass, 0 fail (172 from the original commit, plus 44 for this hardening) |
+| Client tests (`npm test`) | 128 pass, 0 fail (122 from the original commit, plus 6) |
+| Client lint and production build | Lint clean. Build succeeds, with Vite's chunk-size warning for the 622 kB bundle. |
+| Live NOAA load, save, repeat save, reopen | Reopened body equals the live body (JSON-identical, minus the retrieval ID). A repeat save returns the same copy. |
+| Restart with SIGKILL after a save | Copy present after restart. Old retrieval gives 404. |
+
+Two items were **not** re-run: the scripted Chrome check from the earlier commit (keyboard, 390 px width, reduced motion), and any browser check of the new recovery button. The recovery button and labels were checked by rendering the components on the server, not in a browser. Automated checks do not establish WCAG conformance.
 
 ## Engineering choices and tradeoffs
 

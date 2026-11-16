@@ -3,17 +3,25 @@
 //   GET  /api/snapshots           list saved snapshots (newest first, bounded)
 //   GET  /api/snapshots/:id       one snapshot and its observations
 // Every input is validated. No request can name a file path or a database location.
+//
+// The archive is shared. Anyone who can reach this server can list, open, and save into
+// it, because there are no accounts. Two bounds protect storage: a cap on the number of
+// copies (507 when reached) and a per-address limit on saves (429 when exceeded).
 
 import express from "express";
 import { ApiError, ValidationError } from "../errors.js";
+import { DEFAULT_MAX_SNAPSHOTS } from "../config/storage.js";
+import { createFixedWindowLimiter, DEFAULT_WRITE_LIMIT } from "../http/rateLimit.js";
 import { RETRIEVAL_ID_PATTERN } from "../retrievals/store.js";
 import {
   DEFAULT_LIST_LIMIT,
   getSnapshot,
+  getSnapshotMeta,
   listSnapshots,
   MAX_LIST_LIMIT,
   MAX_SNAPSHOT_ROWS,
-  saveSnapshot,
+  saveSnapshotDescribed,
+  SnapshotCapacityError,
   SnapshotTooLargeError,
 } from "../snapshots/repository.js";
 
@@ -22,6 +30,7 @@ const INTEGER_PATTERN = /^\d{1,9}$/;
 const MAX_OFFSET = 100000;
 const LIST_PARAMS = Object.freeze(["limit", "offset"]);
 const SAVE_BODY_LIMIT = "1kb";
+const BODY_MESSAGE = "The save request is not valid.";
 
 // Errors from the database. The detail is logged on the server only.
 export class StorageError extends ApiError {
@@ -30,11 +39,28 @@ export class StorageError extends ApiError {
   }
 }
 
-export function createSnapshotsRouter({ db, retrievals }) {
+export function createSnapshotsRouter({
+  db,
+  retrievals,
+  maxSnapshots = DEFAULT_MAX_SNAPSHOTS,
+  writeLimit = DEFAULT_WRITE_LIMIT,
+}) {
   const router = express.Router();
+  const saveLimiter = createFixedWindowLimiter(writeLimit);
 
   router.post("/snapshots", express.json({ limit: SAVE_BODY_LIMIT, strict: true }), (req, res) => {
     try {
+      // Every save attempt counts, including ones that turn out to be duplicates.
+      const admission = saveLimiter.hit(req.ip ?? "unknown");
+      if (!admission.allowed) {
+        res.set("Retry-After", String(admission.retryAfterSeconds));
+        throw new ApiError(
+          429,
+          "rate_limited",
+          "Too many saves from this connection. Wait a moment, then try again."
+        );
+      }
+
       const retrievalId = readRetrievalId(req.body);
       const retrieval = retrievals.get(retrievalId);
       if (!retrieval) {
@@ -45,16 +71,32 @@ export function createSnapshotsRouter({ db, retrievals }) {
         );
       }
 
+      // A second save of the same retrieval returns the copy already made, so repeated
+      // clicks or a repeated request cannot fill the archive with duplicates.
+      const earlierId = retrievals.savedSnapshotId(retrievalId);
+      if (earlierId !== null) {
+        const existing = guardStorage(() => getSnapshotMeta(db, earlierId));
+        if (existing) {
+          res.status(200).json({ ok: true, created: false, snapshot: existing });
+          return;
+        }
+      }
+
       const rowCount = retrieval.body.quality.receivedRows;
       if (rowCount > MAX_SNAPSHOT_ROWS) {
         throw new ApiError(413, "snapshot_too_large", "That observation set is too large to save.");
       }
 
-      const saved = guardStorage(() =>
-        saveSnapshot(db, { body: retrieval.body, points: retrieval.points, sourceMode: "live" })
+      const { id, snapshot } = guardStorage(() =>
+        saveSnapshotDescribed(db, {
+          body: retrieval.body,
+          points: retrieval.points,
+          sourceMode: "live",
+          maxSnapshots,
+        })
       );
-      const meta = guardStorage(() => getSnapshot(db, saved))?.snapshot;
-      res.status(201).json({ ok: true, snapshot: meta });
+      retrievals.recordSave(retrievalId, id);
+      res.status(201).json({ ok: true, created: true, snapshot });
     } catch (error) {
       sendError(res, error);
     }
@@ -74,7 +116,10 @@ export function createSnapshotsRouter({ db, retrievals }) {
     try {
       const id = req.params.id;
       if (!ID_PATTERN.test(id)) {
-        throw new ValidationError([{ field: "id", message: "Must be a positive whole number." }]);
+        throw new ValidationError(
+          [{ field: "id", message: "Must be a positive whole number." }],
+          "The snapshot ID is not valid."
+        );
       }
       const found = guardStorage(() => getSnapshot(db, Number(id)));
       if (!found) {
@@ -93,7 +138,7 @@ export function createSnapshotsRouter({ db, retrievals }) {
       return sendError(res, new ApiError(413, "request_too_large", "The request body is too large."));
     }
     if (error && (error.type === "entity.parse.failed" || error.type === "charset.unsupported" || error.type === "encoding.unsupported")) {
-      return sendError(res, new ValidationError([{ field: "body", message: "Send a JSON object." }]));
+      return sendError(res, new ValidationError([{ field: "body", message: "Send a JSON object." }], BODY_MESSAGE));
     }
     return next(error);
   });
@@ -103,14 +148,17 @@ export function createSnapshotsRouter({ db, retrievals }) {
 
 function readRetrievalId(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new ValidationError([{ field: "body", message: "Send a JSON object with retrievalId." }]);
+    throw new ValidationError([{ field: "body", message: "Send a JSON object with retrievalId." }], BODY_MESSAGE);
   }
   const extra = Object.keys(body).filter((key) => key !== "retrievalId");
   if (extra.length > 0) {
-    throw new ValidationError(extra.map((field) => ({ field, message: "Unknown field." })));
+    throw new ValidationError(extra.map((field) => ({ field, message: "Unknown field." })), BODY_MESSAGE);
   }
   if (typeof body.retrievalId !== "string" || !RETRIEVAL_ID_PATTERN.test(body.retrievalId)) {
-    throw new ValidationError([{ field: "retrievalId", message: "Must be a retrieval ID from a successful observation load." }]);
+    throw new ValidationError(
+      [{ field: "retrievalId", message: "Must be a retrieval ID from a successful observation load." }],
+      BODY_MESSAGE
+    );
   }
   return body.retrievalId;
 }
@@ -145,8 +193,11 @@ function parseListParams(query) {
   return { limit, offset };
 }
 
-// Turns any database failure into a generic StorageError. Validation and ApiError
-// values pass through unchanged.
+// Sorts failures into three groups. Each gets a response that is true about the store:
+//   - ApiError, validation, and known limits pass through with their own status.
+//   - A SQLite failure is a storage problem (503). The transaction was rolled back, so
+//     nothing was saved, and the detail is logged on the server only.
+//   - Anything else is a bug in this server (500 via sendError), not a storage problem.
 function guardStorage(work) {
   try {
     return work();
@@ -155,9 +206,25 @@ function guardStorage(work) {
     if (error instanceof SnapshotTooLargeError) {
       throw new ApiError(413, "snapshot_too_large", "That observation set is too large to save.");
     }
-    console.error("Snapshot storage failure:", error);
-    throw new StorageError();
+    if (error instanceof SnapshotCapacityError) {
+      throw new ApiError(
+        507,
+        "archive_full",
+        `The shared archive is full (${error.limit} saved copies). Nothing was saved, and no saved copy has been removed.`,
+        { limit: error.limit }
+      );
+    }
+    if (isDatabaseError(error)) {
+      console.error("Snapshot storage failure:", error);
+      throw new StorageError();
+    }
+    throw error;
   }
+}
+
+// node:sqlite reports every database failure with an ERR_SQLITE_* code.
+function isDatabaseError(error) {
+  return typeof error?.code === "string" && error.code.startsWith("ERR_SQLITE");
 }
 
 function sendError(res, error) {

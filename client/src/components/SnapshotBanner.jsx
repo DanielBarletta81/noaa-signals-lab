@@ -2,7 +2,8 @@ import { productLabel, sourceNoteFor, snapshotTimes } from "../view/snapshots.js
 
 // Shown whenever a saved copy is on screen in place of live observations. It names the
 // copy as saved, gives the original retrieval and the save time as separate facts, and
-// offers the one way back to live data. Focus moves here when a copy opens.
+// offers the one way back to the current session. That is the last live response this
+// page holds. It is not a new request to NOAA. Focus moves here when a copy opens.
 export function SnapshotBanner({ snapshot, headingRef, onReturn }) {
   const times = snapshotTimes(snapshot);
   const source = sourceNoteFor(snapshot);
@@ -40,7 +41,7 @@ export function SnapshotBanner({ snapshot, headingRef, onReturn }) {
         </div>
       </dl>
       <button type="button" className="link-button" onClick={onReturn}>
-        Return to live observations
+        Return to current session
       </button>
     </section>
   );
