@@ -2,6 +2,31 @@
 
 Short, dated records of decisions that shape what the interface shows and how it can be verified. Newest first.
 
+## 2026-11-15: Hosting settings, observation cache, request limits, and dependency triage
+
+**Decision.** The API caches each NOAA observation window for 5 minutes and coalesces identical concurrent requests. It limits `GET /api/signals` to 30 requests per minute per connection address. Browser origins come from `CORS_ALLOWED_ORIGINS` (local development by default), and writes from other origins are refused. `TRUST_PROXY_HOPS` (default 0) controls whether `X-Forwarded-For` is read, and only for a proxy the operator runs. Invalid values for these settings stop the server at startup. Dependency fixes are applied only within declared ranges, without `--force`.
+
+**Why.**
+- NOAA publishes hourly values, and each page load asked NOAA for the same window. The cache reduces that to one NOAA call per window per 5 minutes, whatever the number of visitors, and it bounds the upstream calls to the number of windows an allowlisted request can name (72).
+- The cache stores only successful, normalized responses. It changes delivery, not observation. A cached body keeps the original `source.retrievedAt`, and the response says when the entry was stored and when it expires. Cache metadata is not saved in a copy, because it describes how a response was delivered, not what NOAA reported.
+- A cached entry is used only while its retrieval is still held, so the `retrievalId` in a response is always saveable. This avoids handing out an ID the save store has already dropped.
+- `X-Forwarded-For` is trusted only as far as the operator says there is a proxy. Trusting it by default would let any client choose the address that limits are keyed on. No deployment topology is defined in this repository, so the default is the only value supported by evidence.
+- CORS restricts which pages may read responses. The write check refuses saves from browser pages on other sites. Neither is authentication, and the README says so.
+- Audit fixes are applied only where they stay within a declared range. The one remaining server advisory is a development-only watcher whose fix needs a dependency decision, which is not made here.
+
+**Consequences.**
+- Visitors can see the same cached response, with the same `retrievalId`. A save from one visitor makes a later save of that ID return the existing copy (`created: false`). The copy is identical, so this is intended.
+- Per-address limits count the TCP connection's address unless exactly one proxy is trusted. Behind a load balancer with several proxies, all traffic shares limits. The app does not support that topology.
+- NOAA errors are not cached. A failing NOAA is retried on every request, bounded by the per-address limit.
+- A deployment must set `CORS_ALLOWED_ORIGINS` to its frontend origin. No such origin is decided in this repository.
+- `cors` was removed from the server, since the origin policy is now in `server/src/http/cors.js` and tested there. This is a removal, not an upgrade.
+
+**Bounds on individual saves and NOAA responses.** A NOAA response is refused above 256 KB or 200 rows. A save is refused above 200 rows, above 64 KB of stored text, or above a 1 KB request body. The 500-copy default is a measured example, not a storage ceiling. A typical 24-hour copy is about 4 KB on disk, and the largest accepted copy is about 74 KB, so the archive's maximum size is set by the operator's choice of `SNAPSHOT_MAX_COUNT` and the disk they have.
+
+**Dependency triage.** Production dependencies of the server and the client have no advisories. Development tools had 12 in the client and 3 in the server, which `npm audit fix` brought to 0 in the client and to 2 in the server. The server's remaining two are a development watcher (`nodemon`) and its `minimatch`, with a fix that needs `minimatch` 11, which `nodemon` 3.x does not allow. The root `package.json` on this branch has advisories, but nothing the server or client runs uses it. Its uncommitted change in the main checkout removes those entries.
+
+**Browser run.** Recorded in the README, "Verification of this feature". It used the Vite development build and real NOAA data for the live phase, and a captured fixture only to force eviction.
+
 ## 2026-11-15: Saved snapshots are a shared archive, bounded and labelled
 
 **Decision.** Saved copies are shared by everyone who uses the server. There are no accounts, owners, or private copies, and copies cannot be deleted through the app. The archive has a capacity (`SNAPSHOT_MAX_COUNT`, default 500). Saves are limited per client address (10 per minute). A second save of the same retrieval returns the copy already made. The README, "Saved snapshots", states what these bounds do and do not promise.
@@ -15,8 +40,8 @@ Short, dated records of decisions that shape what the interface shows and how it
 **Consequences.**
 - The archive is public to anyone who can reach the server. The page says so. The data is public NOAA data, but this is not private storage.
 - A full archive refuses saves until an operator raises the limit or removes copies by hand. The app has no delete path.
-- Per-address limits do not work behind a reverse proxy until the server reads forwarded addresses. The app does not do that yet.
-- Loading observations (`GET /api/signals`) is not limited per address. Each load calls NOAA. A public deployment needs a limit in front of the server.
+- Per-address limits count the connection address, and no proxy is trusted by default. This was superseded by the 2026-11-15 hosting entry above, which adds `TRUST_PROXY_HOPS`.
+- Loading observations (`GET /api/signals`) was not limited per address in this entry. That was superseded by the 2026-11-15 hosting entry, which adds a 30-per-minute limit and a 5-minute cache.
 
 **Retrieval retention.** A retrieval is kept in memory for 30 minutes, up to 20 loads in total for all visitors. It is dropped at expiry, when newer loads push it out, and at any restart. All three give 404 `retrieval_not_found`. The page then offers **Load observations again** and hides the Save button, because saving the same retrieval again cannot succeed.
 

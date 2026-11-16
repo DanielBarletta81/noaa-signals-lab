@@ -24,6 +24,13 @@ export const NOAA_APPLICATION_ID = "noaa_signal_explorer";
 const DEFAULT_TIMEOUT_MS = 8000;
 const MAX_TIMEOUT_MS = 60000;
 
+// Bounds on what NOAA may send. A 72-hour window at hourly interval is 72 rows, and a
+// typical row is about 60 bytes, so 256 KB is far above any valid response. Anything
+// larger is refused before it is parsed. MAX_NOAA_ROWS matches the save path's row limit,
+// so every row NOAA sends can be saved.
+export const MAX_NOAA_RESPONSE_BYTES = 256 * 1024;
+export const MAX_NOAA_ROWS = 200;
+
 // Every reason a row can be excluded. Reported as counts so the UI can explain
 // what was left out.
 export const EXCLUSION_REASONS = Object.freeze([
@@ -123,13 +130,18 @@ async function requestJson(url, { fetchImpl, timeoutMs }) {
       throw new UpstreamUnreachableError();
     }
 
-    // Read the body once. A body that is not JSON (an HTML error page, for
-    // example) is recorded as PARSE_FAILED rather than thrown, so the HTTP status
-    // still determines the error.
+    // Read the body once, with a size cap. A body that is not JSON (an HTML error page,
+    // for example) is recorded as PARSE_FAILED rather than thrown, so the HTTP status
+    // still determines the error. A body over the cap is an upstream error in its own right.
     let payload;
     try {
-      payload = await response.json();
-    } catch {
+      payload = await readJsonBounded(response, MAX_NOAA_RESPONSE_BYTES);
+    } catch (error) {
+      if (error instanceof ResponseTooLargeError) {
+        throw new UpstreamError("NOAA response was larger than this service accepts.", {
+          upstreamStatus: response.status,
+        });
+      }
       if (timedOut) throw new UpstreamTimeoutError(timeoutMs);
       payload = PARSE_FAILED;
     }
@@ -152,6 +164,36 @@ async function requestJson(url, { fetchImpl, timeoutMs }) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+class ResponseTooLargeError extends Error {}
+
+// Reads the body as JSON, stopping as soon as it passes maxBytes. A Content-Length
+// header over the cap is refused before any body is read. A response without a readable
+// stream (a test double, for example) is read with response.json().
+async function readJsonBounded(response, maxBytes) {
+  const declared = response.headers?.get?.("content-length");
+  if (declared !== undefined && declared !== null && Number(declared) > maxBytes) {
+    throw new ResponseTooLargeError();
+  }
+  if (!response.body || typeof response.body.getReader !== "function") {
+    return response.json();
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new ResponseTooLargeError();
+    }
+    chunks.push(value);
+  }
+  return JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8"));
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +246,12 @@ export function normalizeNoaaResponse(payload, meta) {
 
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) {
     throw new UpstreamError("NOAA response did not contain a data array.");
+  }
+  if (payload.data.length > MAX_NOAA_ROWS) {
+    throw new UpstreamError("NOAA returned more rows than this service accepts.", {
+      receivedRows: payload.data.length,
+      maxRows: MAX_NOAA_ROWS,
+    });
   }
 
   const stationName =

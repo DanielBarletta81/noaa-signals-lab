@@ -83,7 +83,9 @@ describe("save, list, and reopen through HTTP", () => {
 
     const reopened = await call(`/api/snapshots/${id}`);
     assert.equal(reopened.status, 200);
-    const { retrievalId: _omitted, ...liveSignal } = live.body;
+    // retrievalId and cache describe this delivery, not the observations. A saved copy keeps
+    // the observations only.
+    const { retrievalId: _omitted, cache: _cache, ...liveSignal } = live.body;
     assert.deepEqual(reopened.body.signal, liveSignal);
     assert.equal(reopened.body.snapshot.retrievedAt, live.body.source.retrievedAt);
   });

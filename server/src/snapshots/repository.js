@@ -10,6 +10,10 @@ import { buildSignalBody, SOURCE_NAME } from "../signals/buildResponse.js";
 // Upper bound on rows in one snapshot. A request can ask for at most 72 hours, so a
 // normal snapshot is far below this. The bound protects storage from abnormal input.
 export const MAX_SNAPSHOT_ROWS = 200;
+// Upper bound on the text stored for one copy (its raw timestamps, raw values, flags, and
+// source fields), as JSON bytes. A normal 24-hour copy has about 2 KB of such text
+// (measured). 64 KB is far above that and refuses only copies that are abnormal.
+export const MAX_SNAPSHOT_TEXT_BYTES = 64 * 1024;
 export const DEFAULT_LIST_LIMIT = 20;
 export const MAX_LIST_LIMIT = 50;
 export const SNAPSHOT_SOURCE_MODES = Object.freeze(["live", "demonstration"]);
@@ -18,6 +22,13 @@ export class SnapshotTooLargeError extends Error {
   constructor(rowCount) {
     super(`A snapshot may hold at most ${MAX_SNAPSHOT_ROWS} rows; this one has ${rowCount}.`);
     this.name = "SnapshotTooLargeError";
+  }
+}
+
+export class SnapshotTextTooLargeError extends Error {
+  constructor(bytes) {
+    super(`A snapshot may store at most ${MAX_SNAPSHOT_TEXT_BYTES} bytes of text; this one has ${bytes}.`);
+    this.name = "SnapshotTextTooLargeError";
   }
 }
 
@@ -96,6 +107,19 @@ function insertSnapshot(
       `Observation count (${rows.length}) does not match the rows NOAA returned (${quality.receivedRows}).`
     );
   }
+
+  // Row count alone does not bound storage, because each row carries text. The stored
+  // text of one copy is measured here and refused above MAX_SNAPSHOT_TEXT_BYTES.
+  const textBytes = Buffer.byteLength(
+    JSON.stringify([
+      body.stationName ?? null,
+      body.source?.url ?? null,
+      body.source?.noaaMessage ?? null,
+      rows.map((row) => [row.observedAtRaw, row.rawValue, row.flags, row.exclusionReason]),
+    ]),
+    "utf8"
+  );
+  if (textBytes > MAX_SNAPSHOT_TEXT_BYTES) throw new SnapshotTextTooLargeError(textBytes);
 
   // Checked here, inside the transaction, so two saves cannot both pass the check.
   // Nothing already saved is removed when the archive is full.

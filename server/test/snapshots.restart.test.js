@@ -55,7 +55,8 @@ describe("a completed save survives a crash and a restart", () => {
       try {
         const reopened = await realFetch(`${base2}/api/snapshots/${savedId}`).then((r) => r.json());
         assert.equal(reopened.ok, true);
-        const { retrievalId: _omitted, ...liveSignal } = live.body;
+        // retrievalId and cache describe this delivery, not the observations.
+        const { retrievalId: _omitted, cache: _cache, ...liveSignal } = live.body;
         assert.deepEqual(reopened.signal, liveSignal);
 
         const listed = await realFetch(`${base2}/api/snapshots`).then((r) => r.json());

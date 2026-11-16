@@ -18,8 +18,12 @@ export function resolveSnapshotDbPath(env = process.env) {
 // Saved snapshots are shared by everyone who uses this server, with no accounts and no
 // deletion. This is the most copies the archive will hold. When it is full, saves are
 // refused with a clear message, and nothing already saved is removed. Set
-// SNAPSHOT_MAX_COUNT to change it. Measured on Node 22.23.5: about 4 KB on disk per
-// 24-hour copy, so 500 copies take about 2 MB. A 72-hour copy is about three times that.
+// SNAPSHOT_MAX_COUNT to change it.
+//
+// This number is not a storage ceiling by itself. Measured on Node 22.23.5: a typical
+// 24-hour copy takes about 4 KB on disk, so 500 such copies take about 2 MB. The largest
+// copy the save path accepts (200 rows, raw text at its 64 KB bound) takes about 74 KB, so
+// 500 of those would take about 37 MB. Size SNAPSHOT_MAX_COUNT against the disk you have.
 export const DEFAULT_MAX_SNAPSHOTS = 500;
 export const MAX_SNAPSHOTS_LIMIT = 100000;
 

@@ -143,9 +143,55 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 | `API_PROXY_TARGET` | shell, for `npm run dev` or `preview` in `client/` | `http://localhost:4200` | Where the Vite proxy forwards `/api` |
 | `SNAPSHOT_DB_PATH` | server environment | `server/data/noaa-signals.sqlite` | Location of the saved-snapshot SQLite file. Use a writable path on persistent storage. Set by the operator only; the browser cannot choose it. |
 | `SNAPSHOT_MAX_COUNT` | server environment | `500` | Most saved copies the shared archive holds (1 to 100000). A save beyond it is refused with 507. Invalid values fall back to 500. |
+| `TRUST_PROXY_HOPS` | server environment | `0` | How many reverse proxies you run in front of this server (0 to 2). `0` ignores `X-Forwarded-For` entirely. Set `1` only when exactly one proxy you control appends to that header. Any other value stops the server at startup. |
+| `CORS_ALLOWED_ORIGINS` | server environment | the local Vite origins (`http://localhost:5173`, `:4173`, and `127.0.0.1` equivalents) | Comma-separated browser origins allowed to read responses and to save. Each entry is an origin only (`https://host[:port]`, no path or slash). Plain `http` is accepted only for localhost. Invalid values stop the server at startup. |
 | `VITE_API_BASE_URL` | `client/.env.local`, at build time | empty (same origin) | API origin for a deployed build. Must be `https`, except `http://localhost`. See `client/.env.example`. |
 
-`VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable.
+`VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable. `CORS_ALLOWED_ORIGINS` is not a secret, and it is not authentication: any program can send any `Origin` header.
+
+## Hosting and deployment settings
+
+No deployment exists yet, and this repository does not name a hosting provider or a frontend URL. The settings above are therefore defaults for local development, and the values for a real deployment are an open decision. Before any deployment:
+
+1. Set `CORS_ALLOWED_ORIGINS` to the exact origin the client is served from (for example `https://noaa.example.org`). If the client is served from the same origin as the API behind a path-based router, the list can stay at its default.
+2. Build the client with `VITE_API_BASE_URL` set to the API's `https` origin, if the API is on another origin.
+3. Set `TRUST_PROXY_HOPS=1` only when the API sits behind exactly one reverse proxy that you run. Leave it at `0` when the API is reached directly. If your proxy does not append its client address to `X-Forwarded-For`, the limits key on the proxy's address instead.
+4. Put the API behind TLS. The app does not terminate TLS, and the browser build requires an `https` API origin unless it is localhost.
+
+What the settings do and do not provide. They decide which browser pages may read responses, which address the per-connection limits count, and which browser origins may save. They do not identify a user, and they do not stop a program from calling the API. The limits and the origin check are speed bumps, not access control.
+
+## Observation cache and request limits
+
+`GET /api/signals` is cached for **5 minutes** per station, product, and window. The server asks NOAA at most once per key per 5 minutes, however many visitors load the page. Concurrent identical requests share one NOAA call.
+
+Each response has a `cache` object:
+
+| Field | Meaning |
+|---|---|
+| `status` | `miss`: this request asked NOAA. `hit`: served from the cache. `shared`: joined a NOAA request already in progress. |
+| `fetchedAt` | When NOAA was asked (the same value as `source.retrievedAt`). Shown on the page as the retrieval time. |
+| `storedAt`, `expiresAt` | When this cache entry was stored, and when it stops being used. Five minutes apart. |
+| `maxAgeSeconds` | `300`. |
+
+What the cache does not change: the observations, their acceptance rules, the units, and the time zone. A cached body is the same body a fresh request would return, apart from this `cache` object and the `retrievalId`. A cache entry is used only while its retrieval is still held by the save store, so a cached `retrievalId` can always be saved. Errors are never cached. A saved copy never records that it came from the cache.
+
+Limits on `GET /api/signals`: 30 requests per minute per connection address, with `429 rate_limited` and `Retry-After` when exceeded. A cache hit counts against this limit. Every response is `Cache-Control: no-store`, so no browser or intermediary keeps a `retrievalId`.
+
+Upstream bounds: a NOAA response is refused if it is over 256 KB (checked while it is read, and before it is read when `Content-Length` says so), or if it has more than 200 rows. Both are `502 upstream_error`.
+
+## Dependency audit
+
+Triaged on 2026-11-15 with `npm audit` (read-only) and `npm audit fix` without `--force`:
+
+| Package | Scope | Severity | Reachable in production? | Outcome |
+|---|---|---|---|---|
+| Server production dependencies (`express`) | `dependencies` | none | — | `npm audit --omit=dev`: 0 |
+| Client production dependencies (`react`, `react-dom`, `recharts`) | `dependencies` | none | — | `npm audit --omit=dev`: 0 |
+| `vite`, `eslint`, `postcss`, `nanoid`, `source-map-js`, `browserslist`, `baseline-browser-mapping`, `zod`, `@babel/core`, `@eslint/config-array`, `minimatch`, `brace-expansion` (client tree) | build and lint tools | high and moderate, plus one low | No. These run during development and build, and are not shipped in `dist/`. The Vite advisories concern the dev server and Windows path handling. | Fixed by `npm audit fix` within the declared ranges. Client `npm audit`: 0. |
+| `nodemon` and its `minimatch` (server tree) | development watcher (`npm run dev`) | moderate | No. `npm start` runs `node src/index.js` directly, and `nodemon` is not on the production path. | **Not fixed.** The only fix is `minimatch` 11.x, and `nodemon` 3.1.14 (the latest 3.x) pins `minimatch ^10`. Options: an `overrides` entry (untested with nodemon), or replacing nodemon with `node --watch`. Both change dependencies, so this needs your decision. |
+| Root `package.json` (committed version lists `express`, `react`, and others) | not used by the server or the client build | critical, high, moderate | No. The root packages are not what the server or client run. Your uncommitted working-tree change removes those entries. | **Not changed on this branch**, because that file is part of your uncommitted work. |
+
+The client's `npm audit fix` changed 45 packages and added 10 and removed 1, all within the declared caret ranges, and the tests, lint, and build still pass.
 
 ## API
 
@@ -158,14 +204,17 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 | 200 `status: "empty"`, `emptyReason: "noaa_no_data_message"` | NOAA returned its no-data text. This does not prove the window was empty. `absenceStatus` is `not_established`. |
 | 200 `status: "no_valid_observations"` | Rows were returned, but all were excluded |
 | 400 `invalid_parameter` | A station, product, or range is not on the allowlist (only `8454000`, `water_temperature`, 1 to 72 hours) |
-| 502 `upstream_error` / `upstream_unreachable` | NOAA failed or could not be reached |
+| 502 `upstream_error` / `upstream_unreachable` | NOAA failed or could not be reached, or NOAA's response was over 256 KB or had more than 200 rows |
 | 504 `upstream_timeout` | NOAA did not respond in time |
+| 429 `rate_limited` | More than 30 requests per minute from one connection address. `Retry-After` gives the wait. A cache hit counts. |
+
+Every 200 response carries a `cache` object (see "Observation cache" below). Responses are `Cache-Control: no-store`.
 
 Saved snapshots (see below):
 
 | Method and path | Meaning |
 |---|---|
-| `POST /api/snapshots` with `{"retrievalId": "..."}` | Save the response the server still holds under that ID. 201 `created: true` with the new snapshot. 200 `created: false` with the copy already made, when the same retrieval is saved again. 404 `retrieval_not_found` once the retrieval has expired, been evicted, or the server has restarted. 507 `archive_full` when the archive holds its maximum. 429 `rate_limited` with `Retry-After` when one address saves too often. 503 `storage_unavailable` when the database fails; nothing is saved. |
+| `POST /api/snapshots` with `{"retrievalId": "..."}` | Save the response the server still holds under that ID. 201 `created: true` with the new snapshot. 200 `created: false` with the copy already made, when the same retrieval is saved again. 404 `retrieval_not_found` once the retrieval has expired, been evicted, or the server has restarted. 403 `origin_not_allowed` when a browser page on a site not in `CORS_ALLOWED_ORIGINS` tries to save. 413 `snapshot_too_large` when the copy has more than 200 rows or more than 64 KB of stored text. 507 `archive_full` when the archive holds its maximum. 429 `rate_limited` with `Retry-After` when one address saves too often (10 per minute). 503 `storage_unavailable` when the database fails; nothing is saved. |
 | `GET /api/snapshots?limit=10&offset=0` | List saved snapshots, newest first. `limit` 1 to 50, `offset` 0 to 100000. Anyone who can reach the server can read the list. |
 | `GET /api/snapshots/:id` | One snapshot and its rebuilt signal body. 404 `snapshot_not_found` for an unknown ID. |
 
@@ -188,12 +237,19 @@ A saved snapshot is a copy of one loaded NOAA response, kept in a local SQLite d
 2. **Capacity:** the store holds 20 loads for all visitors together. When it is full, the oldest is dropped. On a busy server, a load can be dropped within minutes of being made.
 3. **Restart:** the store is in memory. Any restart empties it. Saved copies in SQLite are not affected.
 
-**Bounds on writes and storage.** Two limits protect the archive. Both were chosen for a small public demonstration, and both can be changed by an operator.
-- **Capacity:** `SNAPSHOT_MAX_COUNT` (default 500 copies). When the archive is full, a save is refused with 507 and the message says that nothing was saved. Existing copies are never deleted to make room. Measured on Node 22.23.5, a 24-hour copy takes about 4 KB on disk, so 500 copies take about 2 MB.
-- **Saves per address:** 10 save attempts per minute per client address, with `Retry-After` on refusal. The address is the connection's address. The app does not yet read `X-Forwarded-For`, so behind a reverse proxy every visitor shares the proxy's address, and the limit applies to all of them together.
+**Bounds on writes and storage.** These limits protect the archive. Each one is a bound on one kind of growth, and none of them is an access control.
+- **Capacity:** `SNAPSHOT_MAX_COUNT` (default 500 copies). When the archive is full, a save is refused with 507 and the message says that nothing was saved. Existing copies are never deleted to make room.
+- **Size of one copy:** at most 200 rows (the same bound NOAA responses are held to) and at most 64 KB of stored text. A save over either bound is refused with 413, and nothing is written. The request body is at most 1 KB.
+- **Saves per address:** 10 save attempts per minute per connection address, with `Retry-After` on refusal. A save refused for its origin does not count toward this limit.
 - **Repeated saves:** saving the same retrieval again returns the copy already made, so repeated clicks do not create duplicates.
 
-These limits do not stop someone who wants to fill the archive. They bound how much one address can add per minute and how large the archive can grow. Loading observations (`GET /api/signals`) has no per-address limit in this version. Each load makes a request to NOAA, so a public deployment needs its own rate limit in front of the server.
+**Storage is measured, not guaranteed.** Measured on Node 22.23.5 with this repository's code: a typical 24-hour copy takes about 4 KB on disk, so 500 such copies take about 2 MB. The largest copy the save path accepts (200 rows, raw text at the 64 KB bound) takes about 74 KB on disk, so 500 of those would take about 37 MB. A deployment that expects large copies should size `SNAPSHOT_MAX_COUNT` against the disk it has. The app does not enforce a total byte budget.
+
+**Proxy and address handling.** The per-address limits count the connection's address. With `TRUST_PROXY_HOPS=0` (the default) that is the address the TCP connection came from, and `X-Forwarded-For` is ignored. With `TRUST_PROXY_HOPS=1`, the address is the one your single proxy appended. Tests in `server/test/proxy.trust.test.js` send real forwarded headers to check both rules. Under the default, a client that rotates `X-Forwarded-For` does not escape the limit.
+
+**Origins.** A save from a browser page whose `Origin` is not in `CORS_ALLOWED_ORIGINS` is refused with 403, and a page on another site cannot read responses. A program can still send any `Origin` header, so this is not authentication.
+
+These limits do not stop someone who is determined to fill the archive. They bound how fast one address can add copies and how large the archive can grow. Loads are limited and cached as described in "Observation cache and request limits".
 
 - When saving, the browser sends only a retrieval ID. It cannot send observation data, a file name, or a path.
 - Demonstration copies come from a captured NOAA fixture, not from a live request. They are labelled "Demonstration" in the list and in the banner. Create one with `(cd server && npm run snapshots:seed-demo)`. Running it again reports that the snapshot already exists.
@@ -206,23 +262,30 @@ These limits do not stop someone who wants to fill the archive. They bound how m
 
 **Runtime.** The server uses Node's built-in `node:sqlite`, which is experimental in this Node line, so startup prints an `ExperimentalWarning`. The schema is versioned. Migrations run in a transaction at startup, and the server refuses a database written by a newer version.
 
-**Verification of this feature.** The runtime checks below were run on Node 22.23.5, the version in `.nvmrc`, with `npm ci` in the root, `server`, and `client` directories.
+**Verification of this feature.** The checks below were run on Node 22.23.5, the version in `.nvmrc`, with `npm ci` in the `server` and `client` directories, on 2026-11-15 against branch `feature/noaa-saved-snapshots-hardening`.
 
 | Check | Result on Node 22.23.5 |
 |---|---|
-| Server tests (`npm test`) | 216 pass, 0 fail (172 from the original commit, plus 44 for this hardening) |
-| Client tests (`npm test`) | 128 pass, 0 fail (122 from the original commit, plus 6) |
-| Client lint and production build | Lint clean. Build succeeds, with Vite's chunk-size warning for the 622 kB bundle. |
-| Live NOAA load, save, repeat save, reopen | Reopened body equals the live body (JSON-identical, minus the retrieval ID). A repeat save returns the same copy. |
-| Restart with SIGKILL after a save | Copy present after restart. Old retrieval gives 404. |
+| Server tests (`npm test`) | 265 pass, 0 fail. 172 from the original commit, 44 from the first hardening commit, and 49 for this round (cache, coalescing, rate limits, proxy trust, origins, NOAA byte and row bounds, save size, configuration). |
+| Client tests (`npm test`) | 128 pass, 0 fail |
+| Client lint and production build | Lint clean. Build succeeds, with Vite's chunk-size warning for the 620 kB bundle. |
+| `npm audit --omit=dev`, server and client | 0 advisories in production dependencies. See "Dependency audit" for the development-only items. |
+| Live NOAA load, save, repeat save, reopen, restart (see the browser run below) | 32 of 32 checks passed, on the development build and on the production bundle |
+| Eviction (see the browser run below) | 3 of 3 checks passed, on the development build and on the production bundle |
+| Restart with SIGKILL after a save (server test) | Copy present after restart. Old retrieval gives 404. |
 
-Two items were **not** re-run: the scripted Chrome check from the earlier commit (keyboard, 390 px width, reduced motion), and any browser check of the new recovery button. The recovery button and labels were checked by rendering the components on the server, not in a browser. Automated checks do not establish WCAG conformance.
+**Browser run, 2026-11-15, this session.** A browser run of the interface as it is on this branch. It is separate from the earlier scripted Chrome run, which predates these changes and is not repeated here.
+- Environment: Google Chrome 157.0.8103.52 on macOS, driven by `playwright-core` 1.65.1 from outside the repository. The API ran on Node 22.23.5. Each phase ran twice: once against the Vite development server, and once against the production bundle served by `vite preview`.
+- Live phase: real NOAA data for Providence (8454000), through the API. It covered a first load, saving by keyboard (Enter), focus on the confirmation, the archive list, a repeat save after a reload (a cache hit), reopening (no NOAA request, focus on the banner), "Return to current session" (no NOAA request), an API restart that expired the page's retrieval (404, the recovery action, then a successful save), a copy surviving the restart, and a 390 px mobile layout.
+- Eviction phase: a second API that preloads the captured NOAA fixture, so that 20 extra loads cost no NOAA traffic. The page's retrieval was evicted and the save returned 404 with the recovery action. The fixture was used only to force eviction, and this phase proves nothing about live data.
+- Screenshots and results are kept outside the repository, in `/private/tmp/noaa-browser/` (`shots-dev-build/`, `shots-prod-build/`, and the `results-*.json` and `*-run-*.log` files).
+- Not covered by the browser run: screen-reader output, reduced-motion behaviour, and any real foreign origin (origin rules are covered by HTTP tests). The eviction phase used the captured fixture, so it proves the page's behaviour, not live data. Automated checks do not establish WCAG conformance.
 
 ## Engineering choices and tradeoffs
 
 | Decision                                                   | Rationale                                                            | Outstanding work                                      |
 | ---------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------- |
-| Express adapter instead of direct browser-to-NOAA requests | Centralizes input validation, normalization and error behavior       | Caching, rate limiting and production security policy |
+| Express adapter instead of direct browser-to-NOAA requests | Centralizes input validation, normalization and error behavior       | Production hosting, proxy topology, and the deployed frontend origin |
 | UTC internally                                             | Avoids ambiguous local timestamps around daylight-saving transitions | Add localized display with a clear timezone label     |
 | Drop invalid readings but count them                       | Prevents fabricated observations while exposing data loss            | Decode NOAA quality flags and expand provenance       |
 | Suppress misleading trends                                 | Avoids presenting an unvalidated calculation as evidence             | Test time-aware window slope and coverage thresholds  |

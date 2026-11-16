@@ -140,6 +140,33 @@ Duplicate-timestamp rows are not accepted. The first row for each hour in NOAA's
 
 Non-scalar `t` or `v` values (objects or arrays) are recorded as `null`, so their original shape is not kept. NOAA's documented responses use strings and numbers only.
 
+## Observation cache (`cache`, on `GET /api/signals`)
+
+Added on 2026-11-15. Describes how this response was delivered. It is not part of the observations, and a saved copy does not store it.
+
+| Field | Meaning |
+|---|---|
+| `status` | `miss`: this request asked NOAA. `hit`: served from the server's cache. `shared`: joined an identical NOAA request already in progress. |
+| `fetchedAt` | When NOAA was asked. Equal to `source.retrievedAt`, which the page shows as the retrieval time. |
+| `storedAt` | When this cache entry was stored (ISO 8601 UTC). |
+| `expiresAt` | When this entry stops being used (ISO 8601 UTC). Five minutes after `storedAt`. |
+| `maxAgeSeconds` | `300`. |
+
+A cached body is otherwise identical to a fresh one. Errors are not cached. An entry is used only while its retrieval is still held, so the `retrievalId` in a cached response can be saved.
+
+## Bounds on NOAA responses and saved copies
+
+| Limit | Value | Result when exceeded |
+|---|---|---|
+| NOAA response size | 256 KB | `502 upstream_error` (checked while the body is read) |
+| NOAA rows per response | 200 | `502 upstream_error` |
+| Rows in one saved copy | 200 | `413 snapshot_too_large` |
+| Stored text in one copy (JSON bytes of raw timestamps, raw values, flags, source fields) | 64 KB | `413 snapshot_too_large`, nothing written |
+| Request body for a save | 1 KB | `413 request_too_large` |
+| Copies in the archive | `SNAPSHOT_MAX_COUNT` (default 500) | `507 archive_full`, nothing written, nothing removed |
+
+Measured on Node 22.23.5: a typical 24-hour copy has about 1.8 KB of stored text and takes about 4 KB on disk. The largest accepted copy (200 rows at the 64 KB text bound) takes about 74 KB on disk. These are measurements, not guarantees. Total disk use is `SNAPSHOT_MAX_COUNT` multiplied by the size of the copies actually saved.
+
 ## Saved snapshots (SQLite)
 
 Snapshots live in `server/data/noaa-signals.sqlite` by default, or at `SNAPSHOT_DB_PATH`. Migrations are numbered SQL files in `server/src/db/migrations/`. `PRAGMA user_version` records the schema version, and the server refuses a database written by a newer version.
@@ -155,4 +182,4 @@ Constraints: `observations.snapshot_id` references `snapshots.id` with `ON DELET
 
 `source_mode` is `live` (saved from a response the app retrieved) or `demonstration` (a captured fixture, labelled with `demo_label`). A demonstration copy's `retrieved_at` is the approximate capture time stated in its label, not a live retrieval.
 
-Storage cost, measured on Node 22.23.5: about 4 KB on disk per 24-hour copy.
+Storage cost, measured on Node 22.23.5: about 4 KB on disk per 24-hour copy, and about 74 KB for the largest accepted copy. See "Bounds on NOAA responses and saved copies".

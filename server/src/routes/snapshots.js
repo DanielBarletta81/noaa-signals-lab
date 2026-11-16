@@ -11,6 +11,8 @@
 import express from "express";
 import { ApiError, ValidationError } from "../errors.js";
 import { DEFAULT_MAX_SNAPSHOTS } from "../config/storage.js";
+import { createOriginPolicy } from "../http/cors.js";
+import { DEFAULT_ALLOWED_ORIGINS } from "../config/security.js";
 import { createFixedWindowLimiter, DEFAULT_WRITE_LIMIT } from "../http/rateLimit.js";
 import { RETRIEVAL_ID_PATTERN } from "../retrievals/store.js";
 import {
@@ -22,6 +24,7 @@ import {
   MAX_SNAPSHOT_ROWS,
   saveSnapshotDescribed,
   SnapshotCapacityError,
+  SnapshotTextTooLargeError,
   SnapshotTooLargeError,
 } from "../snapshots/repository.js";
 
@@ -44,12 +47,26 @@ export function createSnapshotsRouter({
   retrievals,
   maxSnapshots = DEFAULT_MAX_SNAPSHOTS,
   writeLimit = DEFAULT_WRITE_LIMIT,
+  originPolicy = createOriginPolicy(DEFAULT_ALLOWED_ORIGINS),
 }) {
   const router = express.Router();
   const saveLimiter = createFixedWindowLimiter(writeLimit);
 
+  // Saved copies and the list can change, and a retrieval ID is never cached by a browser
+  // or an intermediary.
+  router.use((req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
+
   router.post("/snapshots", express.json({ limit: SAVE_BODY_LIMIT, strict: true }), (req, res) => {
     try {
+      // A write from a browser page on a site that is not allowed is refused before it
+      // counts toward the save limit. This is not authentication. See http/cors.js.
+      if (!originPolicy.isWriteAllowed(req)) {
+        throw new ApiError(403, "origin_not_allowed", "Saving is not allowed from this website.");
+      }
+
       // Every save attempt counts, including ones that turn out to be duplicates.
       const admission = saveLimiter.hit(req.ip ?? "unknown");
       if (!admission.allowed) {
@@ -203,7 +220,7 @@ function guardStorage(work) {
     return work();
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    if (error instanceof SnapshotTooLargeError) {
+    if (error instanceof SnapshotTooLargeError || error instanceof SnapshotTextTooLargeError) {
       throw new ApiError(413, "snapshot_too_large", "That observation set is too large to save.");
     }
     if (error instanceof SnapshotCapacityError) {
