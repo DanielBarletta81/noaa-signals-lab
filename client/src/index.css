@@ -687,6 +687,14 @@ ol {
     padding: 0.9rem 0.8rem 2rem;
   }
 
+  /* Small mono labels are the hardest text to read on a phone. Raised only here. */
+  .kicker,
+  .panel-kicker,
+  .state-label,
+  .status-line {
+    font-size: 0.8rem;
+  }
+
   .chart-frame {
     height: 260px;
   }
@@ -889,4 +897,35 @@ ol {
 .snapshot-banner .link-button {
   justify-self: start;
   text-align: left;
+}
+
+/* Phone-only folding for a secondary section (see CollapsibleSection). */
+.collapsible {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.collapsible-toggle {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  color: var(--numeral);
+  background: var(--ink-1);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapsible-state {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }

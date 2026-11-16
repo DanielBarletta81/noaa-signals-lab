@@ -11,6 +11,8 @@ import { QualityPanel } from "./components/QualityPanel.jsx";
 import { MethodPanel } from "./components/MethodPanel.jsx";
 import { DataTable } from "./components/DataTable.jsx";
 import { SnapshotPanel } from "./components/SnapshotPanel.jsx";
+import { CollapsibleSection } from "./components/CollapsibleSection.jsx";
+import { usePhoneLayout } from "./hooks/usePhoneLayout.js";
 import { SnapshotBanner } from "./components/SnapshotBanner.jsx";
 import { usePrefersReducedMotion } from "./view/motion.js";
 import { buildCoverage } from "./view/coverage.js";
@@ -67,6 +69,10 @@ export default function App() {
   const live = useNoaaSignal();
   const snapshots = useSnapshots();
   const reducedMotion = usePrefersReducedMotion();
+  const phone = usePhoneLayout();
+  // On phones the saved-copies section starts folded. Saving opens it, so the
+  // confirmation it focuses is on screen.
+  const [savedOpen, setSavedOpen] = useState(false);
   const [selectedIso, setSelectedIso] = useState(null);
   // A saved copy on screen in place of the live response. Null means the live view.
   const [openSnapshot, setOpenSnapshot] = useState(null);
@@ -169,6 +175,7 @@ export default function App() {
   }
 
   async function handleSave() {
+    setSavedOpen(true);
     if (liveRetrievalId !== null) await snapshots.saveRetrieval(liveRetrievalId);
   }
 
@@ -264,23 +271,31 @@ export default function App() {
         </div>
 
         <aside className="secondary" aria-label="Saved copies, context, data quality, and methodology">
-          <SnapshotPanel
-            mode={snapshotMeta ? "snapshot" : "live"}
-            canSave={liveCanSave}
-            savedAsId={liveSavedAsId}
-            saveStatus={snapshots.saveStatus}
-            saveError={snapshots.saveError}
-            saveErrorCode={snapshots.saveErrorCode}
-            saveEvent={snapshots.saveEvent}
-            onSave={handleSave}
-            onReloadObservations={retry}
-            list={snapshots.list}
-            more={snapshots.more}
-            onLoadMore={() => snapshots.loadOlder(snapshots.list.items.length)}
-            opening={snapshots.opening}
-            activeId={snapshotMeta?.id ?? null}
-            onOpen={handleOpenSnapshot}
-          />
+          <CollapsibleSection
+            phone={phone}
+            id="saved-copies-section"
+            label={`Saved copies (${snapshots.list.total})`}
+            open={savedOpen}
+            onToggle={setSavedOpen}
+          >
+            <SnapshotPanel
+              mode={snapshotMeta ? "snapshot" : "live"}
+              canSave={liveCanSave}
+              savedAsId={liveSavedAsId}
+              saveStatus={snapshots.saveStatus}
+              saveError={snapshots.saveError}
+              saveErrorCode={snapshots.saveErrorCode}
+              saveEvent={snapshots.saveEvent}
+              onSave={handleSave}
+              onReloadObservations={retry}
+              list={snapshots.list}
+              more={snapshots.more}
+              onLoadMore={() => snapshots.loadOlder(snapshots.list.items.length)}
+              opening={snapshots.opening}
+              activeId={snapshotMeta?.id ?? null}
+              onOpen={handleOpenSnapshot}
+            />
+          </CollapsibleSection>
           {status === "ready" && <SummaryCards summary={processed?.summary} />}
           {status === "ready" && (
             <InsightPanel insight={processed?.insight} limitations={processed?.limitations} />
