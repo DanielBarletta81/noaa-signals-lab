@@ -138,14 +138,16 @@ curl -i 'http://localhost:4200/api/signals?station=8454000&product=water_tempera
 
 | Variable | Set where | Default | Purpose |
 |---|---|---|---|
-| `PORT` | server environment | `4200` | Port for the Express server |
+| `PORT` | server environment | `4200` | Port for the Express server (1 to 65535). |
 | `NOAA_TIMEOUT_MS` | server environment | `8000` | Time allowed for each NOAA request (1 to 60000) |
 | `API_PROXY_TARGET` | shell, for `npm run dev` or `preview` in `client/` | `http://localhost:4200` | Where the Vite proxy forwards `/api` |
 | `SNAPSHOT_DB_PATH` | server environment | `server/data/noaa-signals.sqlite` | Location of the saved-snapshot SQLite file. Use a writable path on persistent storage. Set by the operator only; the browser cannot choose it. |
-| `SNAPSHOT_MAX_COUNT` | server environment | `500` | Most saved copies the shared archive holds (1 to 100000). A save beyond it is refused with 507. Invalid values fall back to 500. |
-| `TRUST_PROXY_HOPS` | server environment | `0` | How many reverse proxies you run in front of this server (0 to 2). `0` ignores `X-Forwarded-For` entirely. Set `1` only when exactly one proxy you control appends to that header. Any other value stops the server at startup. |
-| `CORS_ALLOWED_ORIGINS` | server environment | the local Vite origins (`http://localhost:5173`, `:4173`, and `127.0.0.1` equivalents) | Comma-separated browser origins allowed to read responses and to save. Each entry is an origin only (`https://host[:port]`, no path or slash). Plain `http` is accepted only for localhost. Invalid values stop the server at startup. |
+| `SNAPSHOT_MAX_COUNT` | server environment | `500` | Most saved copies the shared archive holds (1 to 100000). A save beyond it is refused with 507. |
+| `TRUST_PROXY_HOPS` | server environment | `0` | How many reverse proxies you run in front of this server (0 to 2). `0` ignores `X-Forwarded-For` entirely. Set `1` only when exactly one proxy you control appends to that header. |
+| `CORS_ALLOWED_ORIGINS` | server environment | the local Vite origins (`http://localhost:5173`, `:4173`, and `127.0.0.1` equivalents) | Comma-separated browser origins allowed to read responses and to save. Each entry is an origin only (`https://host[:port]`, no path or slash). Plain `http` is accepted only for localhost. |
 | `VITE_API_BASE_URL` | `client/.env.local`, at build time | empty (same origin) | API origin for a deployed build. Must be `https`, except `http://localhost`. See `client/.env.example`. |
+
+**Startup validation.** Every value above that is set is checked when the server starts. A value that is not valid stops the server before it opens the database or listens on a port. The message lists every invalid setting at once, and the server exits with status 1. A value that is unset, or blank after trimming, uses the default shown. An invalid value is never replaced by a default.
 
 `VITE_API_BASE_URL` is compiled into the public JavaScript bundle. Never put secrets in any `VITE_` variable. `CORS_ALLOWED_ORIGINS` is not a secret, and it is not authentication: any program can send any `Origin` header.
 
@@ -266,7 +268,7 @@ These limits do not stop someone who is determined to fill the archive. They bou
 
 | Check | Result on Node 22.23.5 |
 |---|---|
-| Server tests (`npm test`) | 265 pass, 0 fail. 172 from the original commit, 44 from the first hardening commit, and 49 for this round (cache, coalescing, rate limits, proxy trust, origins, NOAA byte and row bounds, save size, configuration). |
+| Server tests (`npm test`) | 284 pass, 0 fail. 172 from the original commit, 44 from the first hardening commit, 49 from the cache and limits round, and 19 from the integration (startup configuration and save-readback tests). The script runs `test/*.test.js` only. |
 | Client tests (`npm test`) | 128 pass, 0 fail |
 | Client lint and production build | Lint clean. Build succeeds, with Vite's chunk-size warning for the 620 kB bundle. |
 | `npm audit --omit=dev`, server and client | 0 advisories in production dependencies. See "Dependency audit" for the development-only items. |

@@ -1,15 +1,21 @@
 import { createApp } from "./app.js";
 import { openDatabase } from "./db/connection.js";
-import { resolveMaxSnapshots, resolveSnapshotDbPath, DEFAULT_MAX_SNAPSHOTS } from "./config/storage.js";
-import { resolveAllowedOrigins, resolveTrustProxyHops } from "./config/security.js";
+import { DEFAULT_MAX_SNAPSHOTS } from "./config/storage.js";
+import { readServerConfig } from "./config/env.js";
 
 // Configuration is read and checked before anything is opened. An invalid setting stops
-// the server here, with a message, rather than starting with a different setting.
-const port = process.env.PORT || 4200;
-const databasePath = resolveSnapshotDbPath();
-const maxSnapshots = resolveMaxSnapshots();
-const trustProxyHops = resolveTrustProxyHops();
-const allowedOrigins = resolveAllowedOrigins();
+// the server here, with a message and a non-zero exit, rather than starting with a
+// different setting.
+let config;
+try {
+  config = readServerConfig();
+} catch (error) {
+  console.error(`Configuration error: ${error.message}`);
+  console.error("The server was not started. Correct the setting and start it again.");
+  process.exit(1);
+}
+
+const { port, databasePath, maxSnapshots, trustProxyHops, allowedOrigins } = config;
 const db = openDatabase(databasePath);
 const app = createApp({ db, snapshotOptions: { maxSnapshots }, trustProxyHops, allowedOrigins });
 

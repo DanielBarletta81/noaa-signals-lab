@@ -50,13 +50,18 @@ const NUMERIC_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
 // Stated in every response so consumers know flags are carried, not applied.
 export const FLAG_POLICY = "preserved_not_interpreted";
 
-// Resolved at call time so tests and deployments can override it.
+// Resolved at call time. An unset or blank NOAA_TIMEOUT_MS uses the default. Any other value
+// must be a whole number of milliseconds from 1 to MAX_TIMEOUT_MS, or this throws. The
+// server checks it at startup (config/env.js), so a bad value stops the server rather than
+// being replaced by a default.
 export function resolveTimeoutMs(env = process.env) {
-  const value = Number(env.NOAA_TIMEOUT_MS);
-  if (Number.isInteger(value) && value >= 1 && value <= MAX_TIMEOUT_MS) {
-    return value;
+  const raw = typeof env.NOAA_TIMEOUT_MS === "string" ? env.NOAA_TIMEOUT_MS.trim() : "";
+  if (raw === "") return DEFAULT_TIMEOUT_MS;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isInteger(value) || value < 1 || value > MAX_TIMEOUT_MS) {
+    throw new Error(`NOAA_TIMEOUT_MS must be a whole number of milliseconds from 1 to ${MAX_TIMEOUT_MS}; got "${raw}".`);
   }
-  return DEFAULT_TIMEOUT_MS;
+  return value;
 }
 
 export function buildNoaaUrl({ station, product, range, interval = "h" }) {

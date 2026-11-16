@@ -19,9 +19,9 @@ describe("SNAPSHOT_MAX_COUNT: the archive capacity", () => {
     assert.equal(resolveMaxSnapshots({ SNAPSHOT_MAX_COUNT: String(MAX_SNAPSHOTS_LIMIT) }), MAX_SNAPSHOTS_LIMIT);
   });
 
-  it("falls back to the default for zero, negatives, fractions, text, and values over the limit", () => {
+  it("refuses zero, negatives, fractions, text, and values over the limit, rather than substituting 500", () => {
     for (const value of ["0", "-3", "1.5", "1e3", "abc", String(MAX_SNAPSHOTS_LIMIT + 1)]) {
-      assert.equal(resolveMaxSnapshots({ SNAPSHOT_MAX_COUNT: value }), 500, `value ${value}`);
+      assert.throws(() => resolveMaxSnapshots({ SNAPSHOT_MAX_COUNT: value }), /SNAPSHOT_MAX_COUNT/, `value ${value}`);
     }
   });
 });

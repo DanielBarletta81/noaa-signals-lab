@@ -2,6 +2,30 @@
 
 Short, dated records of decisions that shape what the interface shows and how it can be verified. Newest first.
 
+## 2026-11-15: Integration of the parallel review, and strict startup configuration
+
+**Decision.** `feature/noaa-saved-snapshots-hardening` (`e316be2`) is the integration candidate. A second review of the same snapshot code, on `feature/noaa-saved-snapshots-review` (`f7a8e09`), was compared line by line. Only its unique, non-conflicting changes were carried over. Its competing contract was not merged. Every explicitly supplied operator setting now fails startup when invalid, and an unset or blank setting uses its documented default.
+
+**Public contract, kept as published:** `SNAPSHOT_MAX_COUNT` (default 500); `507 archive_full` when full; a repeat save returns `created: false`; 10 saves per minute per connection address.
+
+**Taken from the parallel review:**
+- The root test script runs `test/*.test.js` only, so helper modules are not run as tests.
+- A reopened copy reports the time zone and interval stored with it, not constants (`source.timeZone` and `source.interval`).
+- A clearer 404 message for an expired or lost retrieval: it may have expired, or the server may have restarted.
+- Tests for an injected failure while reading the saved copy back: the whole save rolls back, and the same connection then saves normally.
+
+**Not taken, and why:**
+- `SNAPSHOT_MAX_TOTAL`, and the `snapshot_store_full` error code. They rename the published contract.
+- `alreadySaved` in the save response. The published field is `created`, so a repeat save returns `created: false`.
+- A save limit of 10 per 10 minutes. The published limit is 10 per minute.
+- A storage ceiling of 10,000 copies. The published maximum is `SNAPSHOT_MAX_COUNT` up to 100,000, with 500 as the default.
+- The capacity field in the list response and the "3 of 500" panel line. Useful, but a new feature. Left as an optional improvement.
+- The restart helper script. This branch already has an equivalent SIGKILL restart test.
+
+**Startup configuration.** Each setting is read by `server/src/config/env.js` before the database is opened or a port is bound. Invalid values for `PORT`, `SNAPSHOT_MAX_COUNT`, `NOAA_TIMEOUT_MS`, `TRUST_PROXY_HOPS`, and `CORS_ALLOWED_ORIGINS` stop the server with exit status 1. All problems are reported in one message. A value that is unset or blank uses its documented default. The earlier silent fallbacks for `SNAPSHOT_MAX_COUNT` and `NOAA_TIMEOUT_MS` were removed. A test starts the real process with two invalid values and checks the exit code, the messages, and that no database is created.
+
+**Consequences.** Blank values count as unset, so a deployment template with empty entries still starts. That is a deliberate choice, and it is stated in the README.
+
 ## 2026-11-15: Hosting settings, observation cache, request limits, and dependency triage
 
 **Decision.** The API caches each NOAA observation window for 5 minutes and coalesces identical concurrent requests. It limits `GET /api/signals` to 30 requests per minute per connection address. Browser origins come from `CORS_ALLOWED_ORIGINS` (local development by default), and writes from other origins are refused. `TRUST_PROXY_HOPS` (default 0) controls whether `X-Forwarded-For` is read, and only for a proxy the operator runs. Invalid values for these settings stop the server at startup. Dependency fixes are applied only within declared ranges, without `--force`.

@@ -9,7 +9,9 @@ export const SOURCE_NAME = "NOAA CO-OPS Data Retrieval API";
 
 // result: the object returned by fetchNoaaProduct, or the same shape rebuilt from a
 // saved snapshot: { status, emptyReason, absenceStatus, points, stationName, sourceUrl,
-// retrievedAt, quality, noaaMessage }.
+// retrievedAt, quality, noaaMessage }. timeZone and interval are optional. A live request
+// uses the documented contract (GMT, hourly). A saved snapshot passes the values it stored,
+// so a reopened copy reports what was saved, not a constant.
 export function buildSignalBody({ station, product, range, result }) {
   return {
     ok: true,
@@ -24,8 +26,8 @@ export function buildSignalBody({ station, product, range, result }) {
       name: SOURCE_NAME,
       url: result.sourceUrl,
       retrievedAt: result.retrievedAt,
-      timeZone: "GMT",
-      interval: "hourly",
+      timeZone: result.timeZone ?? "GMT",
+      interval: result.interval ?? "hourly",
       noaaMessage: result.noaaMessage,
     },
     quality: result.quality,

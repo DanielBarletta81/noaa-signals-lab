@@ -284,6 +284,8 @@ export function getSnapshot(db, id) {
       points,
       stationName: row.station_name,
       sourceUrl: row.source_url,
+      timeZone: row.time_zone,
+      interval: row.interval_label,
       retrievedAt: row.retrieved_at,
       noaaMessage: row.noaa_message,
       quality: {

@@ -27,13 +27,17 @@ export function resolveSnapshotDbPath(env = process.env) {
 export const DEFAULT_MAX_SNAPSHOTS = 500;
 export const MAX_SNAPSHOTS_LIMIT = 100000;
 
-// A value that is not a whole number from 1 to MAX_SNAPSHOTS_LIMIT falls back to the
-// default, as NOAA_TIMEOUT_MS does. The fallback is reported in the startup log.
+// An unset or blank SNAPSHOT_MAX_COUNT uses the default. Any other value must be a whole
+// number from 1 to MAX_SNAPSHOTS_LIMIT. Anything else throws, so the server stops at startup
+// instead of running with a capacity the operator did not choose.
 export function resolveMaxSnapshots(env = process.env) {
   const configured = typeof env.SNAPSHOT_MAX_COUNT === "string" ? env.SNAPSHOT_MAX_COUNT.trim() : "";
   if (configured === "") return DEFAULT_MAX_SNAPSHOTS;
-  // Plain digits only, so "1e3" and "1.5" are not read as whole numbers.
-  if (!/^\d{1,7}$/.test(configured)) return DEFAULT_MAX_SNAPSHOTS;
-  const value = Number(configured);
-  return value >= 1 && value <= MAX_SNAPSHOTS_LIMIT ? value : DEFAULT_MAX_SNAPSHOTS;
+  // Plain digits only, so "1e3", "1.5", and "-3" are refused.
+  if (!/^\d{1,7}$/.test(configured) || Number(configured) < 1 || Number(configured) > MAX_SNAPSHOTS_LIMIT) {
+    throw new Error(
+      `SNAPSHOT_MAX_COUNT must be a whole number from 1 to ${MAX_SNAPSHOTS_LIMIT}; got "${configured}".`
+    );
+  }
+  return Number(configured);
 }

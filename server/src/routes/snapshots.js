@@ -84,7 +84,7 @@ export function createSnapshotsRouter({
         throw new ApiError(
           404,
           "retrieval_not_found",
-          "That observation set is no longer available. Load the observations again, then save."
+          "That observation set is no longer available. It may have expired, or the server may have restarted. Load the observations again, then save."
         );
       }
 
