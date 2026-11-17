@@ -687,6 +687,14 @@ ol {
     padding: 0.9rem 0.8rem 2rem;
   }
 
+  /* Small mono labels are the hardest text to read on a phone. Raised only here. */
+  .kicker,
+  .panel-kicker,
+  .state-label,
+  .status-line {
+    font-size: 0.8rem;
+  }
+
   .chart-frame {
     height: 260px;
   }
@@ -717,4 +725,207 @@ ol {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Saved snapshots. A saved copy is never presented as live data: the banner says so. */
+
+.snapshot-banner {
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--numeral);
+  border-radius: 4px;
+  padding: 1rem 1.15rem;
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+}
+
+.snapshot-banner-label {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--numeral);
+  margin: 0;
+}
+
+.snapshot-banner h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.snapshot-banner-text {
+  margin: 0;
+  color: var(--text);
+  max-width: 62ch;
+}
+
+.snapshot-facts {
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.snapshot-facts > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.snapshot-facts dt {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.snapshot-facts dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.snapshot-button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  color: var(--numeral);
+  background: transparent;
+  border: 1px solid var(--numeral);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.snapshot-button[aria-disabled="true"] {
+  color: var(--muted);
+  border-color: var(--rule);
+  cursor: progress;
+}
+
+.snapshot-save,
+.snapshot-list-block {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.snapshot-list-block {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.8rem;
+}
+
+.snapshot-list-block h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.snapshot-notice {
+  margin: 0;
+  color: var(--text);
+  border-left: 3px solid var(--sea);
+  padding-left: 0.6rem;
+}
+
+.snapshot-error {
+  margin: 0;
+  color: var(--clay);
+}
+
+.snapshot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.snapshot-item {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--ink-0);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.6rem 0.75rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.snapshot-item[aria-current="true"] {
+  border: 2px solid var(--numeral);
+  padding: 0.55rem 0.7rem;
+}
+
+.snapshot-item-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  font-weight: 600;
+}
+
+.snapshot-item-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.snapshot-item-note {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.snapshot-badge {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clay);
+  border: 1px solid var(--clay);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.snapshot-badge--open {
+  color: var(--numeral);
+  border-color: var(--numeral);
+}
+
+/* A button in a grid stretches by default and centres its label. Keep the banner's return link at its text width. */
+.snapshot-banner .link-button {
+  justify-self: start;
+  text-align: left;
+}
+
+/* Phone-only folding for a secondary section (see CollapsibleSection). */
+.collapsible {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.collapsible-toggle {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  color: var(--numeral);
+  background: var(--ink-1);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapsible-state {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }

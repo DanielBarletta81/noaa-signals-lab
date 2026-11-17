@@ -24,6 +24,13 @@ export const NOAA_APPLICATION_ID = "noaa_signal_explorer";
 const DEFAULT_TIMEOUT_MS = 8000;
 const MAX_TIMEOUT_MS = 60000;
 
+// Bounds on what NOAA may send. A 72-hour window at hourly interval is 72 rows, and a
+// typical row is about 60 bytes, so 256 KB is far above any valid response. Anything
+// larger is refused before it is parsed. MAX_NOAA_ROWS matches the save path's row limit,
+// so every row NOAA sends can be saved.
+export const MAX_NOAA_RESPONSE_BYTES = 256 * 1024;
+export const MAX_NOAA_ROWS = 200;
+
 // Every reason a row can be excluded. Reported as counts so the UI can explain
 // what was left out.
 export const EXCLUSION_REASONS = Object.freeze([
@@ -43,13 +50,18 @@ const NUMERIC_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
 // Stated in every response so consumers know flags are carried, not applied.
 export const FLAG_POLICY = "preserved_not_interpreted";
 
-// Resolved at call time so tests and deployments can override it.
+// Resolved at call time. An unset or blank NOAA_TIMEOUT_MS uses the default. Any other value
+// must be a whole number of milliseconds from 1 to MAX_TIMEOUT_MS, or this throws. The
+// server checks it at startup (config/env.js), so a bad value stops the server rather than
+// being replaced by a default.
 export function resolveTimeoutMs(env = process.env) {
-  const value = Number(env.NOAA_TIMEOUT_MS);
-  if (Number.isInteger(value) && value >= 1 && value <= MAX_TIMEOUT_MS) {
-    return value;
+  const raw = typeof env.NOAA_TIMEOUT_MS === "string" ? env.NOAA_TIMEOUT_MS.trim() : "";
+  if (raw === "") return DEFAULT_TIMEOUT_MS;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isInteger(value) || value < 1 || value > MAX_TIMEOUT_MS) {
+    throw new Error(`NOAA_TIMEOUT_MS must be a whole number of milliseconds from 1 to ${MAX_TIMEOUT_MS}; got "${raw}".`);
   }
-  return DEFAULT_TIMEOUT_MS;
+  return value;
 }
 
 export function buildNoaaUrl({ station, product, range, interval = "h" }) {
@@ -73,7 +85,7 @@ export function buildNoaaUrl({ station, product, range, interval = "h" }) {
  *   {
  *     status: "ok" | "empty" | "no_valid_observations",
  *     points: [{ station, product, timestampUtc, observedAtRaw, value, rawValue, flags }],
- *     quality: { receivedRows, acceptedRows, excludedRows, excludedByReason, excluded },
+ *     quality: { receivedRows, acceptedRows, excludedRows, excludedByReason, excluded, accepted },
  *     stationName, sourceUrl, retrievedAt
  *   }
  *
@@ -123,13 +135,18 @@ async function requestJson(url, { fetchImpl, timeoutMs }) {
       throw new UpstreamUnreachableError();
     }
 
-    // Read the body once. A body that is not JSON (an HTML error page, for
-    // example) is recorded as PARSE_FAILED rather than thrown, so the HTTP status
-    // still determines the error.
+    // Read the body once, with a size cap. A body that is not JSON (an HTML error page,
+    // for example) is recorded as PARSE_FAILED rather than thrown, so the HTTP status
+    // still determines the error. A body over the cap is an upstream error in its own right.
     let payload;
     try {
-      payload = await response.json();
-    } catch {
+      payload = await readJsonBounded(response, MAX_NOAA_RESPONSE_BYTES);
+    } catch (error) {
+      if (error instanceof ResponseTooLargeError) {
+        throw new UpstreamError("NOAA response was larger than this service accepts.", {
+          upstreamStatus: response.status,
+        });
+      }
       if (timedOut) throw new UpstreamTimeoutError(timeoutMs);
       payload = PARSE_FAILED;
     }
@@ -152,6 +169,36 @@ async function requestJson(url, { fetchImpl, timeoutMs }) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+class ResponseTooLargeError extends Error {}
+
+// Reads the body as JSON, stopping as soon as it passes maxBytes. A Content-Length
+// header over the cap is refused before any body is read. A response without a readable
+// stream (a test double, for example) is read with response.json().
+async function readJsonBounded(response, maxBytes) {
+  const declared = response.headers?.get?.("content-length");
+  if (declared !== undefined && declared !== null && Number(declared) > maxBytes) {
+    throw new ResponseTooLargeError();
+  }
+  if (!response.body || typeof response.body.getReader !== "function") {
+    return response.json();
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new ResponseTooLargeError();
+    }
+    chunks.push(value);
+  }
+  return JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8"));
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +252,12 @@ export function normalizeNoaaResponse(payload, meta) {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) {
     throw new UpstreamError("NOAA response did not contain a data array.");
   }
+  if (payload.data.length > MAX_NOAA_ROWS) {
+    throw new UpstreamError("NOAA returned more rows than this service accepts.", {
+      receivedRows: payload.data.length,
+      maxRows: MAX_NOAA_ROWS,
+    });
+  }
 
   const stationName =
     typeof payload.metadata?.name === "string" ? payload.metadata.name : null;
@@ -232,15 +285,19 @@ export function normalizeNoaaResponse(payload, meta) {
     const previous = points.at(-1);
     if (previous && previous.timestampUtc === point.timestampUtc) {
       excluded.push({
-        index: null,
+        index: point.rowIndex,
         reason: "duplicate_timestamp",
         rawTimestamp: point.observedAtRaw,
         rawValue: point.rawValue,
+        flags: point.flags,
       });
     } else {
       points.push(point);
     }
   }
+
+  // Report exclusions in NOAA row order, so duplicates sit where NOAA placed them.
+  excluded.sort((a, b) => a.index - b.index);
 
   return buildResult({
     meta,
@@ -256,22 +313,40 @@ export function normalizeNoaaResponse(payload, meta) {
   });
 }
 
+// The accepted rows in NOAA's own row order, with the raw text, the raw value, and the
+// q/f flags of each row. With quality.excluded, this lists every row NOAA returned, in
+// the order NOAA sent it. Live responses and saved snapshots both use this function, so
+// the two shapes cannot drift apart.
+export function acceptedRecords(points) {
+  return [...points]
+    .sort((a, b) => a.rowIndex - b.rowIndex)
+    .map((point) => ({
+      rowIndex: point.rowIndex,
+      observedAtRaw: point.observedAtRaw,
+      timestampUtc: point.timestampUtc,
+      value: point.value,
+      rawValue: point.rawValue,
+      flags: point.flags,
+    }));
+}
+
 function normalizeRow(row, index, meta) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
-    return excludeRow(index, "malformed_row", null, null);
+    return excludeRow(index, "malformed_row", null, null, NO_FLAGS);
   }
 
   const rawTimestamp = scalarOrNull(row.t);
   const rawValue = scalarOrNull(row.v);
+  const flags = rowFlags(row);
 
   const timestamp = parseNoaaGmtTimestamp(row.t);
   if (!timestamp.ok) {
-    return excludeRow(index, "malformed_timestamp", rawTimestamp, rawValue);
+    return excludeRow(index, "malformed_timestamp", rawTimestamp, rawValue, flags);
   }
 
   const measurement = classifyMeasurement(row.v);
   if (!measurement.ok) {
-    return excludeRow(index, measurement.reason, rawTimestamp, rawValue);
+    return excludeRow(index, measurement.reason, rawTimestamp, rawValue, flags);
   }
 
   return {
@@ -279,14 +354,14 @@ function normalizeRow(row, index, meta) {
     point: {
       station: meta.station,
       product: meta.product,
+      // Position of this row in NOAA's data array. Kept so saved snapshots can restore
+      // the original row order. Not part of the scientific acceptance rules.
+      rowIndex: index,
       timestampUtc: timestamp.iso,
       observedAtRaw: row.t,
       value: measurement.value,
       rawValue: row.v,
-      flags: {
-        quality: row.q ?? null,
-        flag: row.f ?? null,
-      },
+      flags,
     },
   };
 }
@@ -326,8 +401,16 @@ function normalizeZero(value) {
   return value === 0 ? 0 : value;
 }
 
-function excludeRow(index, reason, rawTimestamp, rawValue) {
-  return { ok: false, exclusion: { index, reason, rawTimestamp, rawValue } };
+// NOAA's q and f values as received. Carried for every row, accepted or excluded.
+// Not interpreted: see FLAG_POLICY.
+const NO_FLAGS = Object.freeze({ quality: null, flag: null });
+
+function rowFlags(row) {
+  return { quality: row.q ?? null, flag: row.f ?? null };
+}
+
+function excludeRow(index, reason, rawTimestamp, rawValue, flags) {
+  return { ok: false, exclusion: { index, reason, rawTimestamp, rawValue, flags } };
 }
 
 function scalarOrNull(value) {
@@ -364,6 +447,7 @@ function buildResult({
       excludedRows: excluded.length,
       excludedByReason,
       excluded,
+      accepted: acceptedRecords(points),
       // NOAA's f and q values are copied into each point unchanged. Their meanings
       // are not verified in this project, so no row is filtered by them.
       flagPolicy: FLAG_POLICY,

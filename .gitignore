@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Saved-snapshot database (local runtime data; never commit)
+server/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

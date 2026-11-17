@@ -110,3 +110,76 @@ Before flags are used for filtering, their meanings must be confirmed against NO
 - `server`: `npm ci`, then `npm test`.
 - `client`: `npm ci`, then `npm run lint` and `npm run build`.
 - The root `package.json` is not used by the server or client builds. Its status is an open question for the maintainer (the working-tree change removes dependencies that the committed version listed).
+
+## Excluded rows (`quality.excluded`)
+
+| Field | Meaning |
+|---|---|
+| `index` | Zero-based position of the row in NOAA's `data` array. A duplicate-timestamp exclusion carries the position of the later row. Earlier builds reported `null` for these. |
+| `reason` | One of the exclusion reasons above |
+| `rawTimestamp` | NOAA's `t` text as received, or `null` |
+| `rawValue` | NOAA's `v` text as received, or `null` |
+| `flags` | `{quality, flag}`: NOAA's `q` and `f` for the row. Not interpreted. Earlier builds did not attach flags to excluded rows. |
+
+The list is sorted by `index`, so exclusions appear in NOAA's order. The acceptance rules are unchanged.
+
+## Accepted rows (`quality.accepted`)
+
+Added on 2026-11-15. It lists each accepted row in NOAA's `data` order. `quality.accepted` and `quality.excluded` together give every row NOAA returned, once each, at its `index`. `processed.series` is in time order and does not carry these fields.
+
+| Field | Meaning |
+|---|---|
+| `rowIndex` | Zero-based position of the row in NOAA's `data` array |
+| `observedAtRaw` | NOAA's `t` text as received, for example `"2026-11-15 01:00"`. Time zone is GMT, because the request sets `time_zone=gmt`. |
+| `timestampUtc` | The same instant as an ISO 8601 UTC string, parsed without the JavaScript string parser |
+| `value` | The parsed number, in °C for `water_temperature` (`units=metric`) |
+| `rawValue` | NOAA's `v` as received: a string such as `"12.30"`, or a number. The text is not reformatted, so `"12.30"` stays `"12.30"`. |
+| `flags` | `{quality, flag}`: NOAA's `q` and `f` for the row. `null` when NOAA sent no value for that field. Not interpreted. |
+
+Duplicate-timestamp rows are not accepted. The first row for each hour in NOAA's order is accepted, and the later one is listed in `quality.excluded` with `duplicate_timestamp`. That is an assumption, not a verified NOAA rule.
+
+Non-scalar `t` or `v` values (objects or arrays) are recorded as `null`, so their original shape is not kept. NOAA's documented responses use strings and numbers only.
+
+## Observation cache (`cache`, on `GET /api/signals`)
+
+Added on 2026-11-15. Describes how this response was delivered. It is not part of the observations, and a saved copy does not store it.
+
+| Field | Meaning |
+|---|---|
+| `status` | `miss`: this request asked NOAA. `hit`: served from the server's cache. `shared`: joined an identical NOAA request already in progress. |
+| `fetchedAt` | When NOAA was asked. Equal to `source.retrievedAt`, which the page shows as the retrieval time. |
+| `storedAt` | When this cache entry was stored (ISO 8601 UTC). |
+| `expiresAt` | When this entry stops being used (ISO 8601 UTC). Five minutes after `storedAt`. |
+| `maxAgeSeconds` | `300`. |
+
+A cached body is otherwise identical to a fresh one. Errors are not cached. An entry is used only while its retrieval is still held, so the `retrievalId` in a cached response can be saved.
+
+## Bounds on NOAA responses and saved copies
+
+| Limit | Value | Result when exceeded |
+|---|---|---|
+| NOAA response size | 256 KB | `502 upstream_error` (checked while the body is read) |
+| NOAA rows per response | 200 | `502 upstream_error` |
+| Rows in one saved copy | 200 | `413 snapshot_too_large` |
+| Stored text in one copy (JSON bytes of raw timestamps, raw values, flags, source fields) | 64 KB | `413 snapshot_too_large`, nothing written |
+| Request body for a save | 1 KB | `413 request_too_large` |
+| Copies in the archive | `SNAPSHOT_MAX_COUNT` (default 500) | `507 archive_full`, nothing written, nothing removed |
+
+Measured on Node 22.23.5: a typical 24-hour copy has about 1.8 KB of stored text and takes about 4 KB on disk. The largest accepted copy (200 rows at the 64 KB text bound) takes about 74 KB on disk. These are measurements, not guarantees. Total disk use is `SNAPSHOT_MAX_COUNT` multiplied by the size of the copies actually saved.
+
+## Saved snapshots (SQLite)
+
+Snapshots live in `server/data/noaa-signals.sqlite` by default, or at `SNAPSHOT_DB_PATH`. Migrations are numbered SQL files in `server/src/db/migrations/`. `PRAGMA user_version` records the schema version, and the server refuses a database written by a newer version.
+
+The archive is shared. There are no owners or accounts. Snapshot IDs are sequential integers and are listed for anyone. At most `SNAPSHOT_MAX_COUNT` copies are stored (default 500), and a save beyond that is refused with 507 `archive_full`. Nothing is deleted automatically. Retrieval IDs are never stored in the database.
+
+| Table | Purpose |
+|---|---|
+| `snapshots` | One row per save: station, product, requested window, NOAA status, source name and URL, `retrieved_at` (the original NOAA retrieval), `saved_at` (when the copy was saved), `source_mode`, `demo_label`, and row counts. A CHECK constraint enforces `received_rows = accepted_rows + excluded_rows`. |
+| `observations` | One row per NOAA row, in NOAA's order (`row_order`). Accepted and excluded rows are both stored. `observed_at_utc` is null when the timestamp could not be read. `value` is null unless the row was accepted. `exclusion_reason` is set for excluded rows. `flag_quality` and `flag_flag` hold NOAA's `q` and `f` as JSON text. |
+
+Constraints: `observations.snapshot_id` references `snapshots.id` with `ON DELETE CASCADE`, and foreign keys are enabled. Each save is one transaction, so a snapshot and its observations are stored together or not at all. The capacity check runs inside the same transaction. All SQL is parameterized.
+
+`source_mode` is `live` (saved from a response the app retrieved) or `demonstration` (a captured fixture, labelled with `demo_label`). A demonstration copy's `retrieved_at` is the approximate capture time stated in its label, not a live retrieval.
+
+Storage cost, measured on Node 22.23.5: about 4 KB on disk per 24-hour copy, and about 74 KB for the largest accepted copy. See "Bounds on NOAA responses and saved copies".

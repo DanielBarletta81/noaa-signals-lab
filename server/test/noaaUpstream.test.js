@@ -190,9 +190,14 @@ describe("resolveTimeoutMs: configuration", () => {
     assert.equal(resolveTimeoutMs({ NOAA_TIMEOUT_MS: "1500" }), 1500);
   });
 
-  it("falls back to the default for invalid overrides", () => {
-    for (const value of ["", "0", "-5", "abc", "1.5", "600000"]) {
-      assert.equal(resolveTimeoutMs({ NOAA_TIMEOUT_MS: value }), 8000, `value ${value}`);
+  it("uses the default when the value is unset or blank", () => {
+    assert.equal(resolveTimeoutMs({ NOAA_TIMEOUT_MS: "" }), 8000);
+    assert.equal(resolveTimeoutMs({ NOAA_TIMEOUT_MS: "   " }), 8000);
+  });
+
+  it("refuses an invalid value rather than substituting the default", () => {
+    for (const value of ["0", "-5", "abc", "1.5", "1e3", "600000"]) {
+      assert.throws(() => resolveTimeoutMs({ NOAA_TIMEOUT_MS: value }), /NOAA_TIMEOUT_MS/, `value ${value}`);
     }
   });
 });

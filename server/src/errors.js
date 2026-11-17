@@ -13,10 +13,11 @@ export class ApiError extends Error {
   }
 }
 
-// 400: the caller sent a parameter we do not accept.
+// 400: the caller sent a parameter or a body we do not accept. The message names what
+// was wrong, so a save body is never described as a query-parameter problem.
 export class ValidationError extends ApiError {
-  constructor(errors) {
-    super(400, "invalid_parameter", "One or more query parameters are invalid.", {
+  constructor(errors, publicMessage = "One or more query parameters are invalid.") {
+    super(400, "invalid_parameter", publicMessage, {
       errors,
     });
     this.name = "ValidationError";
